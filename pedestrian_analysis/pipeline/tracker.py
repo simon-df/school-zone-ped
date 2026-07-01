@@ -26,6 +26,10 @@ logger = logging.getLogger(__name__)
 # Person class index in COCO (used by YOLOv8)
 _PERSON_CLASS_ID = 0
 
+# Columns for an empty trajectory DataFrame
+_TRAJECTORY_COLUMNS = ["id", "frame", "x", "y", "px", "py",
+                       "bbox_x1", "bbox_y1", "bbox_x2", "bbox_y2", "confidence"]
+
 
 # ---------------------------------------------------------------------------
 # Annotation helper
@@ -172,9 +176,7 @@ def extract_trajectories_from_video(
         if writer is not None:
             writer.release()
 
-    return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["id", "frame", "x", "y", "px", "py",
-                                                                   "bbox_x1", "bbox_y1", "bbox_x2", "bbox_y2",
-                                                                   "confidence"])
+    return pd.DataFrame(rows) if rows else pd.DataFrame(columns=_TRAJECTORY_COLUMNS)
 
 
 # ---------------------------------------------------------------------------
@@ -292,9 +294,7 @@ def run_tracking_with_preview(
     send_status(result_queue, "Tracking complete.")
     send_progress(result_queue, 1.0)
 
-    return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["id", "frame", "x", "y", "px", "py",
-                                                                   "bbox_x1", "bbox_y1", "bbox_x2", "bbox_y2",
-                                                                   "confidence"])
+    return pd.DataFrame(rows) if rows else pd.DataFrame(columns=_TRAJECTORY_COLUMNS)
 
 
 # ---------------------------------------------------------------------------

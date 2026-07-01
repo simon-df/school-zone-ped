@@ -12,14 +12,6 @@ import matplotlib.patches as mpatches
 import numpy as np
 import pandas as pd
 
-logger = logging.getLogger(__name__)
-
-try:
-    import plotly.graph_objects as go
-    _PLOTLY_AVAILABLE = True
-except ImportError:
-    _PLOTLY_AVAILABLE = False
-
 
 def plot_trajectories(
     df: pd.DataFrame,

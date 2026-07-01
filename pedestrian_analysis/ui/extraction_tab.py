@@ -74,9 +74,7 @@ class ExtractionTab(ttk.Frame):
         param_frame.columnconfigure(1, weight=1)
 
         self._model_var = tk.StringVar(value="yolov8n.pt")
-        make_label_entry(param_frame, "Model name:", default="yolov8n.pt", row=0)
-        self._model_entry = ttk.Entry(param_frame, textvariable=self._model_var, width=20)
-        self._model_entry.grid(row=0, column=1, padx=4, pady=2, sticky="ew")
+        self._model_entry = make_label_entry(param_frame, "Model name:", default="yolov8n.pt", row=0)
 
         self._conf_var = tk.StringVar(value="0.4")
         self._conf_entry = make_label_entry(param_frame, "Confidence:", default="0.4", row=1)

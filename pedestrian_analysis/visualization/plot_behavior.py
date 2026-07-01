@@ -57,8 +57,8 @@ def plot_behavior_timeline(
         # Draw segments
         start_f = frames[0]
         cur_state = states[0]
-        for i in range(1, len(frames)):
-            if states[i] != cur_state or i == len(frames) - 1:
+        for i in range(n):
+            if states[i] != cur_state:
                 end_f = frames[i]
                 t_start = start_f / fps
                 t_end = end_f / fps
@@ -66,6 +66,14 @@ def plot_behavior_timeline(
                 ax.barh(y_pos, t_end - t_start, left=t_start, height=0.7, color=color, alpha=0.85)
                 start_f = frames[i]
                 cur_state = states[i]
+
+        # Draw the final segment
+        end_f = frames[-1]
+        t_start = start_f / fps
+        t_end = end_f / fps
+        if t_end > t_start:
+            color = _STATE_COLORS.get(str(cur_state), "purple")
+            ax.barh(y_pos, t_end - t_start, left=t_start, height=0.7, color=color, alpha=0.85)
 
     ax.set_yticks(range(len(ped_ids)))
     ax.set_yticklabels([str(p) for p in ped_ids], fontsize=8)
