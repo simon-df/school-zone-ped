@@ -41,9 +41,12 @@ DPI: int = 300
 # Tracker / model defaults
 # ---------------------------------------------------------------------------
 DEFAULT_MODEL_NAME: str = "yolov8n.pt"
+DEFAULT_TRACKER_TYPE: str = "bot_sort"
+TRACKER_CHOICES: tuple[str, ...] = ("bot_sort", "byte_track", "ocsort", "deep_ocsort", "pb_evformer")
 DEFAULT_FRAME_SKIP: int = 1
 DEFAULT_CONFIDENCE: float = 0.4
 DEFAULT_FPS: float = 25.0
+DEFAULT_PREVIEW_EVERY_N: int = 5
 DEFAULT_STREET_START_M: float = 2.0
 DEFAULT_STREET_END_M: float = 6.0
 DEFAULT_GRID_SPACING_M: float = 1.0
