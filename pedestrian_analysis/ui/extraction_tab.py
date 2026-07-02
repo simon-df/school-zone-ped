@@ -10,12 +10,12 @@ from typing import Optional
 import numpy as np
 import tkinter as tk
 from tkinter import ttk
-from PIL import Image as PILImage
 
+from config import DEFAULT_CONFIDENCE, DEFAULT_FPS, DEFAULT_FRAME_SKIP, DEFAULT_MODEL_NAME, DEFAULT_TRACKER_TYPE, TRACKER_CHOICES
 from ui.dialogs import ask_open_file, ask_save_file, show_error, show_info, show_warning
-from ui.widgets import make_label_entry, append_log, make_scrolled_text
+from ui.widgets import append_log, make_label_entry, make_scrolled_text
+from utils.image_utils import bgr_to_pil, pil_to_tkimage, scale_image_for_canvas
 from utils.threading_utils import WorkerTask, poll_queue
-from utils.image_utils import bgr_to_pil, scale_image_for_canvas, pil_to_tkimage
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +26,9 @@ _PREVIEW_H = 360
 class ExtractionTab(ttk.Frame):
     """UI tab for trajectory extraction.
 
-    Runs YOLOv8 + ByteTrack in a background thread and streams progress,
-    status and preview frames to the main thread via a :class:`queue.Queue`.
+    The tab runs tracking work in a background thread and streams progress,
+    status messages and preview frames back to the Tkinter main thread via a
+    queue. This keeps the desktop UI responsive while long tracking jobs run.
     """
 
     def __init__(self, parent: tk.Widget, app_state) -> None:
@@ -36,20 +37,15 @@ class ExtractionTab(ttk.Frame):
         self._worker: Optional[WorkerTask] = None
         self._result_queue: queue.Queue = queue.Queue()
         self._trajectories = None
-        self._tk_preview = None  # prevent GC
+        self._tk_preview = None
 
         self._build_ui()
-
-    # ------------------------------------------------------------------
-    # UI construction
-    # ------------------------------------------------------------------
 
     def _build_ui(self) -> None:
         self.columnconfigure(0, weight=1)
         self.columnconfigure(1, weight=1)
         self.rowconfigure(2, weight=1)
 
-        # --- File selection ---
         file_frame = ttk.LabelFrame(self, text="Input Files", padding=6)
         file_frame.grid(row=0, column=0, columnspan=2, sticky="ew", padx=6, pady=4)
         file_frame.columnconfigure(1, weight=1)
@@ -68,78 +64,66 @@ class ExtractionTab(ttk.Frame):
             row=1, column=1, padx=4, pady=2, sticky="ew"
         )
 
-        # --- Parameters ---
         param_frame = ttk.LabelFrame(self, text="Parameters", padding=6)
         param_frame.grid(row=1, column=0, sticky="nsew", padx=6, pady=4)
         param_frame.columnconfigure(1, weight=1)
 
-        self._model_var = tk.StringVar(value="yolov8n.pt")
-        self._model_entry = make_label_entry(param_frame, "Model name:", default="yolov8n.pt", row=0)
+        self._model_entry = make_label_entry(param_frame, "Model name:", default=DEFAULT_MODEL_NAME, row=0)
+        self._conf_entry = make_label_entry(param_frame, "Confidence:", default=str(DEFAULT_CONFIDENCE), row=1)
+        self._frame_skip_entry = make_label_entry(param_frame, "Frame skip:", default=str(DEFAULT_FRAME_SKIP), row=2)
+        self._fps_entry = make_label_entry(param_frame, "FPS:", default=str(DEFAULT_FPS), row=3)
 
-        self._conf_var = tk.StringVar(value="0.4")
-        self._conf_entry = make_label_entry(param_frame, "Confidence:", default="0.4", row=1)
+        ttk.Label(param_frame, text="Tracker type:", width=20, anchor="w").grid(row=4, column=0, padx=4, pady=2, sticky="w")
+        self._tracker_type_var = tk.StringVar(value=DEFAULT_TRACKER_TYPE)
+        self._tracker_type_cb = ttk.Combobox(
+            param_frame,
+            textvariable=self._tracker_type_var,
+            state="readonly",
+            values=list(TRACKER_CHOICES),
+            width=28,
+        )
+        self._tracker_type_cb.grid(row=4, column=1, padx=4, pady=2, sticky="ew")
 
-        self._frame_skip_var = tk.StringVar(value="1")
-        self._frame_skip_entry = make_label_entry(param_frame, "Frame skip:", default="1", row=2)
+        self._street_start_entry = make_label_entry(param_frame, "Street start X (m):", default="2.0", row=5)
+        self._street_end_entry = make_label_entry(param_frame, "Street end X (m):", default="6.0", row=6)
+        self._speed_thresh_entry = make_label_entry(param_frame, "Speed threshold (m/s):", default="0.3", row=7)
 
-        self._fps_var = tk.StringVar(value="25.0")
-        self._fps_entry = make_label_entry(param_frame, "FPS:", default="25.0", row=3)
-
-        self._street_start_var = tk.StringVar(value="2.0")
-        self._street_start_entry = make_label_entry(param_frame, "Street start X (m):", default="2.0", row=4)
-
-        self._street_end_var = tk.StringVar(value="6.0")
-        self._street_end_entry = make_label_entry(param_frame, "Street end X (m):", default="6.0", row=5)
-
-        self._speed_thresh_var = tk.StringVar(value="0.3")
-        self._speed_thresh_entry = make_label_entry(param_frame, "Speed threshold (m/s):", default="0.3", row=6)
-
-        # PBEVFormer optional
         self._pbev_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(param_frame, text="Use PBEVFormer mode", variable=self._pbev_var,
-                        command=self._toggle_pbev).grid(row=7, column=0, columnspan=2, sticky="w", pady=2)
+        ttk.Checkbutton(param_frame, text="Use PBEVFormer mode", variable=self._pbev_var, command=self._toggle_pbev).grid(
+            row=8, column=0, columnspan=2, sticky="w", pady=2
+        )
 
         self._pbev_frame = ttk.Frame(param_frame)
-        self._pbev_frame.grid(row=8, column=0, columnspan=2, sticky="ew")
+        self._pbev_frame.grid(row=9, column=0, columnspan=2, sticky="ew")
         self._pbev_config_entry = make_label_entry(self._pbev_frame, "PBEVFormer config:", row=0)
         self._pbev_weights_entry = make_label_entry(self._pbev_frame, "PBEVFormer weights:", row=1)
-        ttk.Button(self._pbev_frame, text="Browse config",
-                   command=lambda: self._browse_entry(self._pbev_config_entry)).grid(row=0, column=2, padx=4)
-        ttk.Button(self._pbev_frame, text="Browse weights",
-                   command=lambda: self._browse_entry(self._pbev_weights_entry)).grid(row=1, column=2, padx=4)
+        ttk.Button(self._pbev_frame, text="Browse config", command=lambda: self._browse_entry(self._pbev_config_entry)).grid(row=0, column=2, padx=4)
+        ttk.Button(self._pbev_frame, text="Browse weights", command=lambda: self._browse_entry(self._pbev_weights_entry)).grid(row=1, column=2, padx=4)
         self._pbev_frame.grid_remove()
 
-        # Start/stop
         btn_row = ttk.Frame(param_frame)
-        btn_row.grid(row=9, column=0, columnspan=2, pady=6)
+        btn_row.grid(row=10, column=0, columnspan=2, pady=6)
         self._start_btn = ttk.Button(btn_row, text="Start Extraction", command=self._on_start)
         self._start_btn.pack(side="left", padx=4)
         self._stop_btn = ttk.Button(btn_row, text="Stop", command=self._on_stop, state="disabled")
         self._stop_btn.pack(side="left", padx=4)
 
         self._progress = ttk.Progressbar(param_frame, mode="determinate", maximum=100)
-        self._progress.grid(row=10, column=0, columnspan=2, sticky="ew", padx=4, pady=4)
+        self._progress.grid(row=11, column=0, columnspan=2, sticky="ew", padx=4, pady=4)
 
-        # --- Log ---
         log_frame = ttk.LabelFrame(self, text="Log", padding=4)
         log_frame.grid(row=2, column=0, sticky="nsew", padx=6, pady=4)
         self._log_text = make_scrolled_text(log_frame, height=10, state="disabled")
 
-        # --- Preview ---
         preview_frame = ttk.LabelFrame(self, text="Preview", padding=4)
         preview_frame.grid(row=1, column=1, rowspan=2, sticky="nsew", padx=6, pady=4)
         self._preview_canvas = tk.Canvas(preview_frame, width=_PREVIEW_W, height=_PREVIEW_H, bg="#1a1a1a")
         self._preview_canvas.pack(fill="both", expand=True)
 
-        # Export buttons
         exp_frame = ttk.Frame(self)
         exp_frame.grid(row=3, column=0, columnspan=2, pady=4)
         ttk.Button(exp_frame, text="Save Annotated Video", command=self._on_save_video).pack(side="left", padx=6)
         ttk.Button(exp_frame, text="Save Trajectories CSV", command=self._on_save_csv).pack(side="left", padx=6)
-
-    # ------------------------------------------------------------------
-    # Event handlers
-    # ------------------------------------------------------------------
 
     def _on_select_video(self) -> None:
         path = ask_open_file(
@@ -188,7 +172,8 @@ class ExtractionTab(ttk.Frame):
             show_error(f"Invalid parameter: {exc}")
             return
 
-        model_name = self._model_var.get().strip() or "yolov8n.pt"
+        model_name = self._model_entry.get().strip() or DEFAULT_MODEL_NAME
+        tracker_type = self._tracker_type_var.get().strip() or DEFAULT_TRACKER_TYPE
         H = self._state.homography if self._state.homography is not None else np.eye(3)
 
         self._result_queue = queue.Queue()
@@ -208,6 +193,7 @@ class ExtractionTab(ttk.Frame):
                 "confidence": confidence,
                 "frame_skip": frame_skip,
                 "cancelled_fn": lambda: self._worker.is_cancelled() if self._worker else False,
+                "tracker_type": tracker_type,
             },
             result_queue=self._result_queue,
         )
@@ -218,7 +204,7 @@ class ExtractionTab(ttk.Frame):
         config_path = self._pbev_config_entry.get().strip()
         weights_path = self._pbev_weights_entry.get().strip()
         try:
-            from pipeline.tracker import PBEVFormerTrackerAdapter
+            from pipeline.tracker_adapters import PBEVFormerTrackerAdapter
 
             PBEVFormerTrackerAdapter(config_path, weights_path)
         except NotImplementedError as exc:
@@ -260,10 +246,6 @@ class ExtractionTab(ttk.Frame):
         except Exception as exc:
             show_error(f"Failed to save CSV: {exc}")
 
-    # ------------------------------------------------------------------
-    # Queue polling (main-thread only)
-    # ------------------------------------------------------------------
-
     def _poll_queue(self) -> None:
         def handle(msg: dict) -> None:
             mtype = msg["type"]
@@ -285,7 +267,7 @@ class ExtractionTab(ttk.Frame):
             elif mtype == "done":
                 self._start_btn.config(state="normal")
                 self._stop_btn.config(state="disabled")
-                return  # stop polling
+                return
 
         poll_queue(self._result_queue, handle)
         if self._worker and self._worker.is_alive():
@@ -299,10 +281,6 @@ class ExtractionTab(ttk.Frame):
         self._tk_preview = pil_to_tkimage(scaled)
         self._preview_canvas.delete("all")
         self._preview_canvas.create_image(0, 0, anchor="nw", image=self._tk_preview)
-
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
 
     def _toggle_pbev(self) -> None:
         if self._pbev_var.get():

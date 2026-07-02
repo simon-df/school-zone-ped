@@ -7,9 +7,11 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from pipeline.calibration import compute_homography, pixel_to_meter
+from utils.validation import validate_trajectory_dataframe
 
 
 # ---------------------------------------------------------------------------
@@ -67,3 +69,14 @@ class TestComputeHomography:
     def test_raises_on_wrong_columns(self):
         with pytest.raises(ValueError):
             compute_homography(np.zeros((4, 3)), np.zeros((4, 2)))
+
+
+class TestValidateTrajectoryDataFrame:
+    def test_requires_minimum_columns(self):
+        df = pd.DataFrame({"id": [1], "frame": [0], "x": [0.0]})
+        with pytest.raises(ValueError):
+            validate_trajectory_dataframe(df)
+
+    def test_accepts_minimal_columns(self):
+        df = pd.DataFrame({"id": [1], "frame": [0], "x": [0.0], "y": [0.0]})
+        validate_trajectory_dataframe(df)
