@@ -17,10 +17,9 @@ desktop.ini
 .idea/
 .vscode/
 outputs/
-pedestrian_analysis/data/videos/
-pedestrian_analysis/data/previews/
-pedestrian_analysis/outputs/
-pedestrian_analysis/data/calibration/last_calibration.json
+pedestrian_analysis/data/*
+pedestrian_analysis/outputs/*
+pedestrian_analysis/__pycache__/*
 dist/
 build/
 *.egg-info/
