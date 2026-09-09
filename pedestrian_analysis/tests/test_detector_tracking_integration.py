@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import deque
 import os
 import sys
 
@@ -121,3 +122,43 @@ def test_draw_tracking_annotations_uses_behavior_colors_and_labels(monkeypatch) 
     assert labels[0][1] == tracker._BEHAVIOR_BOX_COLORS["crossing"]
     assert labels[1][0] == "ID:8 0.77 [waiting]"
     assert labels[1][1] == tracker._BEHAVIOR_BOX_COLORS["waiting"]
+
+
+def test_draw_tracking_annotations_draws_trails_for_tracked_ids_only(monkeypatch) -> None:
+    frame = np.zeros((40, 40, 3), dtype=np.uint8)
+    draw_calls: list[tuple[str, tuple[int, int, int]]] = []
+    line_calls: list[tuple[tuple[int, int], tuple[int, int], tuple[int, int, int]]] = []
+    original_line = tracker.cv2.line
+    original_rectangle = tracker.cv2.rectangle
+
+    def capture_line(*args, **kwargs):
+        line_calls.append((args[1], args[2], tuple(args[3])))
+        draw_calls.append(("line", tuple(args[3])))
+        return original_line(*args, **kwargs)
+
+    def capture_rectangle(*args, **kwargs):
+        draw_calls.append(("rectangle", tuple(args[3])))
+        return original_rectangle(*args, **kwargs)
+
+    monkeypatch.setattr(tracker.cv2, "line", capture_line)
+    monkeypatch.setattr(tracker.cv2, "rectangle", capture_rectangle)
+
+    tracker.draw_tracking_annotations(
+        frame,
+        track_ids=[7, -1],
+        bboxes=[(20, 20, 28, 28), (2, 2, 10, 10)],
+        behaviors=["crossing", "waiting"],
+        track_trajectories={
+            7: deque([(5.0, 5.0), (10.0, 10.0), (15.0, 10.0)]),
+            -1: deque([(30.0, 30.0), (35.0, 35.0)]),
+        },
+    )
+
+    assert line_calls == [
+        ((5, 5), (10, 10), tracker._BEHAVIOR_BOX_COLORS["crossing"]),
+        ((10, 10), (15, 10), tracker._BEHAVIOR_BOX_COLORS["crossing"]),
+    ]
+    assert draw_calls[0] == ("line", tracker._BEHAVIOR_BOX_COLORS["crossing"])
+    assert draw_calls[1] == ("line", tracker._BEHAVIOR_BOX_COLORS["crossing"])
+    assert draw_calls[2] == ("rectangle", tracker._BEHAVIOR_BOX_COLORS["crossing"])
+    assert all(call[2] == tracker._BEHAVIOR_BOX_COLORS["crossing"] for call in line_calls)

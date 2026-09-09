@@ -129,6 +129,7 @@ def draw_tracking_annotations(
     foot_points_px: list[tuple[float, float]] | None = None,
     foot_points_m: list[tuple[float, float]] | None = None,
     behaviors: list[str] | None = None,
+    track_trajectories: dict[int, deque[tuple[float, float]]] | None = None,
 ) -> np.ndarray:
     """Draw tracking overlays on a frame copy.
 
@@ -140,15 +141,23 @@ def draw_tracking_annotations(
         foot_points_px: Optional pixel foot points.
         foot_points_m: Optional metre foot points.
         behaviors: Optional behavior labels.
+        track_trajectories: Optional per-track centroid histories in pixel coordinates.
 
     Returns:
         An annotated copy of the input frame.
     """
     annotated = frame.copy()
     for i, tid in enumerate(track_ids):
-        x1, y1, x2, y2 = (int(round(v)) for v in bboxes[i])
         behavior = behaviors[i] if behaviors is not None and i < len(behaviors) else None
         box_color = _get_behavior_box_color(behavior)
+        if track_trajectories is not None and tid >= 0:
+            trajectory = track_trajectories.get(tid)
+            if trajectory is not None and len(trajectory) >= 2:
+                points = [tuple(int(round(v)) for v in point) for point in trajectory]
+                for start, end in zip(points, points[1:]):
+                    cv2.line(annotated, start, end, box_color, 2, cv2.LINE_AA)
+
+        x1, y1, x2, y2 = (int(round(v)) for v in bboxes[i])
         cv2.rectangle(annotated, (x1, y1), (x2, y2), box_color, 2)
 
         label = f"ID:{tid}"
@@ -307,7 +316,16 @@ def extract_trajectories_from_video(
 
             if writer is not None:
                 behaviors = _get_current_behaviors(rows, frame_idx, track_ids, meta["fps"])
-                annotated = draw_tracking_annotations(frame, track_ids, bboxes, confs, feet_px, feet_m, behaviors=behaviors)
+                annotated = draw_tracking_annotations(
+                    frame,
+                    track_ids,
+                    bboxes,
+                    confs,
+                    feet_px,
+                    feet_m,
+                    behaviors=behaviors,
+                    track_trajectories=track_points,
+                )
                 writer.write(annotated)
 
             if progress_callback is not None and total_frames > 0:
@@ -424,7 +442,16 @@ def run_tracking_with_preview(
                 feet_m.append((xm, ym))
 
             behaviors = _get_current_behaviors(rows, frame_idx, track_ids, meta["fps"])
-            annotated = draw_tracking_annotations(frame, track_ids, bboxes, confs, feet_px, feet_m, behaviors=behaviors)
+            annotated = draw_tracking_annotations(
+                frame,
+                track_ids,
+                bboxes,
+                confs,
+                feet_px,
+                feet_m,
+                behaviors=behaviors,
+                track_trajectories=track_points,
+            )
             if writer is not None:
                 writer.write(annotated)
 
