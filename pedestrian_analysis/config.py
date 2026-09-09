@@ -39,7 +39,18 @@ DPI: int = 300
 # ---------------------------------------------------------------------------
 # Tracker / model defaults
 # ---------------------------------------------------------------------------
+DEFAULT_DETECTOR_TYPE: str = "yolov8"
 DEFAULT_MODEL_NAME: str = "yolov8n.pt"
+DEFAULT_DETECTOR_CLASSES: tuple[str, ...] = ("person",)
+DEFAULT_IMAGE_SIZE: int = 640
+DEFAULT_NMS_IOU: float = 0.7
+SUPPORTED_DETECTOR_TYPES: tuple[str, ...] = (
+    "yolov8",
+    "yolov8_large",
+    "small_object_yolo",
+    "rtdetr",
+)
+DETECTOR_CHOICES: tuple[str, ...] = SUPPORTED_DETECTOR_TYPES
 DEFAULT_TRACKER_TYPE: str = "byte_track"
 SUPPORTED_TRACKER_TYPES: tuple[str, ...] = (
     "bot_sort",

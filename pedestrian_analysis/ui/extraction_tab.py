@@ -12,14 +12,17 @@ from tkinter import ttk
 
 from config import (
     DEFAULT_CONFIDENCE,
+    DEFAULT_DETECTOR_CLASSES,
+    DEFAULT_DETECTOR_TYPE,
     DEFAULT_FPS,
     DEFAULT_FRAME_SKIP,
-    DEFAULT_MODEL_NAME,
     DEFAULT_OUTPUT_TRAJECTORY_DIR,
     DEFAULT_OUTPUT_VIDEO_DIR,
+    DETECTOR_CHOICES,
     DEFAULT_TRACKER_TYPE,
     TRACKER_CHOICES,
 )
+from pipeline.detectors import DETECTOR_DEFAULT_MODELS, resolve_detector_model
 from ui.dialogs import ask_open_file, ask_save_file, show_error, show_info, show_warning
 from ui.widgets import append_log, make_label_entry, make_scrolled_text
 from utils.image_utils import bgr_to_pil, pil_to_tkimage, scale_image_for_canvas
@@ -49,6 +52,7 @@ class ExtractionTab(ttk.Frame):
         self._trajectories = None
         self._tk_preview = None
 
+        self._last_detector_default_model = DETECTOR_DEFAULT_MODELS[DEFAULT_DETECTOR_TYPE]
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -78,12 +82,35 @@ class ExtractionTab(ttk.Frame):
         param_frame.grid(row=1, column=0, sticky="nsew", padx=6, pady=4)
         param_frame.columnconfigure(1, weight=1)
 
-        self._model_entry = make_label_entry(param_frame, "Model name:", default=DEFAULT_MODEL_NAME, row=0)
-        self._conf_entry = make_label_entry(param_frame, "Confidence:", default=str(DEFAULT_CONFIDENCE), row=1)
-        self._frame_skip_entry = make_label_entry(param_frame, "Frame skip:", default=str(DEFAULT_FRAME_SKIP), row=2)
-        self._fps_entry = make_label_entry(param_frame, "FPS:", default=str(DEFAULT_FPS), row=3)
+        ttk.Label(param_frame, text="Detector type:", width=20, anchor="w").grid(row=0, column=0, padx=4, pady=2, sticky="w")
+        self._detector_type_var = tk.StringVar(value=DEFAULT_DETECTOR_TYPE)
+        self._detector_type_cb = ttk.Combobox(
+            param_frame,
+            textvariable=self._detector_type_var,
+            state="readonly",
+            values=list(DETECTOR_CHOICES),
+            width=28,
+        )
+        self._detector_type_cb.grid(row=0, column=1, padx=4, pady=2, sticky="ew")
 
-        ttk.Label(param_frame, text="Tracker type:", width=20, anchor="w").grid(row=4, column=0, padx=4, pady=2, sticky="w")
+        self._model_entry = make_label_entry(
+            param_frame,
+            "Model name:",
+            default=DETECTOR_DEFAULT_MODELS[DEFAULT_DETECTOR_TYPE],
+            row=1,
+        )
+        self._detector_type_cb.bind("<<ComboboxSelected>>", self._on_detector_type_changed)
+        self._conf_entry = make_label_entry(param_frame, "Confidence:", default=str(DEFAULT_CONFIDENCE), row=2)
+        self._frame_skip_entry = make_label_entry(param_frame, "Frame skip:", default=str(DEFAULT_FRAME_SKIP), row=3)
+        self._fps_entry = make_label_entry(param_frame, "FPS:", default=str(DEFAULT_FPS), row=4)
+        self._class_filter_entry = make_label_entry(
+            param_frame,
+            "Tracked classes:",
+            default=",".join(DEFAULT_DETECTOR_CLASSES),
+            row=5,
+        )
+
+        ttk.Label(param_frame, text="Tracker type:", width=20, anchor="w").grid(row=6, column=0, padx=4, pady=2, sticky="w")
         self._tracker_type_var = tk.StringVar(value=DEFAULT_TRACKER_TYPE)
         self._tracker_type_cb = ttk.Combobox(
             param_frame,
@@ -92,31 +119,31 @@ class ExtractionTab(ttk.Frame):
             values=list(TRACKER_CHOICES),
             width=28,
         )
-        self._tracker_type_cb.grid(row=4, column=1, padx=4, pady=2, sticky="ew")
+        self._tracker_type_cb.grid(row=6, column=1, padx=4, pady=2, sticky="ew")
 
-        self._street_start_entry = make_label_entry(param_frame, "Street start y (m):", default="2.0", row=5)
-        self._street_end_entry = make_label_entry(param_frame, "Street end y (m):", default="6.0", row=6)
-        self._speed_thresh_entry = make_label_entry(param_frame, "Speed threshold (m/s):", default="0.3", row=7)
+        self._street_start_entry = make_label_entry(param_frame, "Street start y (m):", default="2.0", row=7)
+        self._street_end_entry = make_label_entry(param_frame, "Street end y (m):", default="6.0", row=8)
+        self._speed_thresh_entry = make_label_entry(param_frame, "Speed threshold (m/s):", default="0.3", row=9)
 
-        ttk.Label(param_frame, text="Output video:", width=20, anchor="w").grid(row=8, column=0, padx=4, pady=2, sticky="w")
+        ttk.Label(param_frame, text="Output video:", width=20, anchor="w").grid(row=10, column=0, padx=4, pady=2, sticky="w")
         self._output_video_var = tk.StringVar(value="")
-        ttk.Entry(param_frame, textvariable=self._output_video_var, width=28).grid(row=8, column=1, padx=4, pady=2, sticky="ew")
-        ttk.Button(param_frame, text="Browse", command=self._on_browse_output_video).grid(row=8, column=2, padx=4, pady=2)
+        ttk.Entry(param_frame, textvariable=self._output_video_var, width=28).grid(row=10, column=1, padx=4, pady=2, sticky="ew")
+        ttk.Button(param_frame, text="Browse", command=self._on_browse_output_video).grid(row=10, column=2, padx=4, pady=2)
 
-        ttk.Label(param_frame, text="Output CSV:", width=20, anchor="w").grid(row=9, column=0, padx=4, pady=2, sticky="w")
+        ttk.Label(param_frame, text="Output CSV:", width=20, anchor="w").grid(row=11, column=0, padx=4, pady=2, sticky="w")
         self._output_csv_var = tk.StringVar(value="")
-        ttk.Entry(param_frame, textvariable=self._output_csv_var, width=28).grid(row=9, column=1, padx=4, pady=2, sticky="ew")
-        ttk.Button(param_frame, text="Browse", command=self._on_browse_output_csv).grid(row=9, column=2, padx=4, pady=2)
+        ttk.Entry(param_frame, textvariable=self._output_csv_var, width=28).grid(row=11, column=1, padx=4, pady=2, sticky="ew")
+        ttk.Button(param_frame, text="Browse", command=self._on_browse_output_csv).grid(row=11, column=2, padx=4, pady=2)
 
         btn_row = ttk.Frame(param_frame)
-        btn_row.grid(row=10, column=0, columnspan=3, pady=6)
+        btn_row.grid(row=12, column=0, columnspan=3, pady=6)
         self._start_btn = ttk.Button(btn_row, text="Start Extraction", command=self._on_start)
         self._start_btn.pack(side="left", padx=4)
         self._stop_btn = ttk.Button(btn_row, text="Stop", command=self._on_stop, state="disabled")
         self._stop_btn.pack(side="left", padx=4)
 
         self._progress = ttk.Progressbar(param_frame, mode="determinate", maximum=100)
-        self._progress.grid(row=11, column=0, columnspan=3, sticky="ew", padx=4, pady=4)
+        self._progress.grid(row=13, column=0, columnspan=3, sticky="ew", padx=4, pady=4)
 
         log_frame = ttk.LabelFrame(self, text="Log", padding=4)
         log_frame.grid(row=2, column=0, sticky="nsew", padx=6, pady=4)
@@ -180,7 +207,9 @@ class ExtractionTab(ttk.Frame):
             show_error(f"Invalid parameter: {exc}")
             return
 
-        model_name = self._model_entry.get().strip() or DEFAULT_MODEL_NAME
+        detector_type = self._detector_type_var.get().strip() or DEFAULT_DETECTOR_TYPE
+        model_name = self._model_entry.get().strip() or None
+        detector_classes = self._class_filter_entry.get().strip() or ",".join(DEFAULT_DETECTOR_CLASSES)
         tracker_type = self._tracker_type_var.get().strip() or DEFAULT_TRACKER_TYPE
         output_video_path = self._output_video_var.get().strip()
         output_csv_path = self._output_csv_var.get().strip()
@@ -201,6 +230,8 @@ class ExtractionTab(ttk.Frame):
                 "result_queue": self._result_queue,
                 "model_name": model_name,
                 "confidence": confidence,
+                "detector_type": detector_type,
+                "detector_classes": detector_classes,
                 "frame_skip": frame_skip,
                 "output_video_path": output_video_path or None,
                 "output_csv_path": output_csv_path or None,
@@ -217,6 +248,15 @@ class ExtractionTab(ttk.Frame):
             self._worker.cancel()
         self._start_btn.config(state="normal")
         self._stop_btn.config(state="disabled")
+
+    def _on_detector_type_changed(self, _event=None) -> None:
+        detector_type = self._detector_type_var.get().strip() or DEFAULT_DETECTOR_TYPE
+        current_model = self._model_entry.get().strip()
+        next_default = resolve_detector_model(detector_type, None)
+        if not current_model or current_model == self._last_detector_default_model:
+            self._model_entry.delete(0, "end")
+            self._model_entry.insert(0, next_default)
+        self._last_detector_default_model = next_default
 
     def _on_save_video(self) -> None:
         if self._output_video_var.get().strip():
