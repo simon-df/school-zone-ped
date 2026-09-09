@@ -77,10 +77,19 @@ python app.py
 
 The tracking pipeline is designed around adapter-based backends:
 
-- bot_sort: default local mode using the supervision BoT-SORT adapter
-- byte_track: lightweight supervision ByteTrack alternative
-- ocsort / deep_ocsort: experimental placeholders for future integration
-- pb_evformer: experimental stub for future BEV-based tracking
+- `bot_sort`: default local mode using the supervision BoT-SORT adapter
+- `byte_track`: lightweight supervision ByteTrack alternative
+- `ocsort`: OC-SORT adapter (optional dependency: `boxmot`)
+- `deep_ocsort`: experimental placeholder for future integration
+- `pb_evformer`: experimental stub for future BEV-based tracking
+
+Research-focused tracker groups (ordered fallback):
+
+- `research_top_down_general`: `bot_sort` -> `ocsort` -> `byte_track`
+- `research_top_down_occlusion`: `bot_sort` -> `ocsort` -> `byte_track`
+- `research_top_down_small_targets`: `bot_sort` -> `byte_track` -> `ocsort`
+
+You can select either a concrete tracker or a group name via `tracker_type`.
 
 ## Data and output folders
 

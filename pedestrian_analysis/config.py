@@ -42,7 +42,16 @@ DPI: int = 300
 # ---------------------------------------------------------------------------
 DEFAULT_MODEL_NAME: str = "yolov8n.pt"
 DEFAULT_TRACKER_TYPE: str = "bot_sort"
-TRACKER_CHOICES: tuple[str, ...] = ("bot_sort", "byte_track", "ocsort", "deep_ocsort", "pb_evformer")
+TRACKER_CHOICES: tuple[str, ...] = (
+    "bot_sort",
+    "byte_track",
+    "ocsort",
+    "deep_ocsort",
+    "pb_evformer",
+    "research_top_down_general",
+    "research_top_down_occlusion",
+    "research_top_down_small_targets",
+)
 DEFAULT_FRAME_SKIP: int = 1
 DEFAULT_CONFIDENCE: float = 0.4
 DEFAULT_FPS: float = 25.0

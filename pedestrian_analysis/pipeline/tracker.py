@@ -135,7 +135,8 @@ def extract_trajectories_from_video(
         frame_skip: Skip every ``frame_skip``-th frame.
         output_video_path: Optional annotated output video path.
         progress_callback: Optional callback receiving ``(fraction, message)``.
-        tracker_type: Tracker adapter name such as ``bot_sort`` or ``byte_track``.
+        tracker_type: Tracker adapter name (e.g. ``bot_sort``) or research group name
+            (e.g. ``research_top_down_occlusion``).
 
     Returns:
         A trajectory DataFrame with the required columns ``id``, ``frame``, ``x``, ``y``,
@@ -231,7 +232,8 @@ def run_tracking_with_preview(
         preview_every_n: Send preview frames every ``preview_every_n`` processed frames.
         output_video_path: Optional annotated output video path.
         cancelled_fn: Optional callback returning ``True`` when the user aborts.
-        tracker_type: Tracker adapter name such as ``bot_sort`` or ``byte_track``.
+        tracker_type: Tracker adapter name (e.g. ``bot_sort``) or research group name
+            (e.g. ``research_top_down_occlusion``).
 
     Returns:
         A trajectory DataFrame with the same required columns as :func:`extract_trajectories_from_video`.
