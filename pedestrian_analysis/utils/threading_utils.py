@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import logging
 import queue
 import threading
 import traceback
 from typing import Any, Callable
 
+import logging
 logger = logging.getLogger(__name__)
 
 # Sentinel object used to signal that a worker has finished.

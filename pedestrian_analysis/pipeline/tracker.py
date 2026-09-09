@@ -8,7 +8,6 @@ The pipeline is intentionally split into:
 
 from __future__ import annotations
 
-import logging
 import queue
 from pathlib import Path
 from typing import Any, Callable
@@ -18,11 +17,14 @@ import numpy as np
 import pandas as pd
 
 from config import DEFAULT_CONFIDENCE, DEFAULT_FRAME_SKIP, DEFAULT_MODEL_NAME, DEFAULT_TRACKER_TYPE
+from pedestrian_analysis.pipeline.behavior_labeling import label_behaviors
+from pedestrian_analysis.pipeline.group_analysis import detect_groups_per_frame
 from pipeline.calibration import pixel_to_meter
 from pipeline.tracker_adapters import create_tracker_adapter
 from utils.threading_utils import send_preview, send_progress, send_status
 from utils.video_utils import create_video_writer, get_video_metadata, iter_frames
 
+import logging
 logger = logging.getLogger(__name__)
 
 _PERSON_CLASS_ID = 0
@@ -122,6 +124,7 @@ def extract_trajectories_from_video(
     confidence: float = DEFAULT_CONFIDENCE,
     frame_skip: int = DEFAULT_FRAME_SKIP,
     output_video_path: str | Path | None = None,
+    output_csv_path: str | Path | None = None,
     progress_callback: Callable[[float, str], None] | None = None,
     tracker_type: str | None = None,
 ) -> pd.DataFrame:
@@ -134,6 +137,7 @@ def extract_trajectories_from_video(
         confidence: Detection confidence threshold.
         frame_skip: Skip every ``frame_skip``-th frame.
         output_video_path: Optional annotated output video path.
+        output_csv_path: Optional CSV output path. When provided, the trajectories are saved automatically.
         progress_callback: Optional callback receiving ``(fraction, message)``.
         tracker_type: Tracker adapter name (e.g. ``bot_sort``) or research group name
             (e.g. ``research_top_down_occlusion``).
@@ -205,7 +209,13 @@ def extract_trajectories_from_video(
         if writer is not None:
             writer.release()
 
-    return pd.DataFrame(rows) if rows else pd.DataFrame(columns=_TRAJECTORY_COLUMNS)
+    df = pd.DataFrame(rows) if rows else pd.DataFrame(columns=_TRAJECTORY_COLUMNS)
+    label_behaviors(df, fps=meta["fps"])
+    if output_csv_path is not None:
+        from pipeline.trajectory_io import save_trajectories
+
+        save_trajectories(df, output_csv_path)
+    return df
 
 
 def run_tracking_with_preview(
@@ -217,6 +227,7 @@ def run_tracking_with_preview(
     frame_skip: int = DEFAULT_FRAME_SKIP,
     preview_every_n: int = 5,
     output_video_path: str | Path | None = None,
+    output_csv_path: str | Path | None = None,
     cancelled_fn: Callable[[], bool] | None = None,
     tracker_type: str | None = None,
 ) -> pd.DataFrame:
@@ -231,6 +242,7 @@ def run_tracking_with_preview(
         frame_skip: Skip every ``frame_skip``-th frame.
         preview_every_n: Send preview frames every ``preview_every_n`` processed frames.
         output_video_path: Optional annotated output video path.
+        output_csv_path: Optional CSV output path. When provided, the trajectories are saved automatically.
         cancelled_fn: Optional callback returning ``True`` when the user aborts.
         tracker_type: Tracker adapter name (e.g. ``bot_sort``) or research group name
             (e.g. ``research_top_down_occlusion``).
@@ -316,7 +328,18 @@ def run_tracking_with_preview(
 
     send_status(result_queue, "Tracking complete.")
     send_progress(result_queue, 1.0)
-    return pd.DataFrame(rows) if rows else pd.DataFrame(columns=_TRAJECTORY_COLUMNS)
+    df = pd.DataFrame(rows) if rows else pd.DataFrame(columns=_TRAJECTORY_COLUMNS)
+    df = label_behaviors(df, fps=meta["fps"], street_start_m=2.0, street_end_m=6.0, speed_threshold_ms=0.5, waiting_min_frames=10, smooth_window=10)
+    df = detect_groups_per_frame(df, proximity_m=1.5, min_group_frames=10, smooth_window=10)
+
+    # df = df.append(df_behavior, ignore_index=False).append(df_groups, ignore_index=False)
+
+    
+    if output_csv_path is not None:
+        from pipeline.trajectory_io import save_trajectories
+
+        save_trajectories(df, output_csv_path)
+    return df
 
 
 def compute_tracking_metrics(df: pd.DataFrame) -> dict[str, Any]:

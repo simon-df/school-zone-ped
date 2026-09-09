@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 
 import matplotlib
@@ -12,6 +11,7 @@ import matplotlib.patches as mpatches
 import numpy as np
 import pandas as pd
 
+import logging
 logger = logging.getLogger(__name__)
 
 _STATE_COLORS = {

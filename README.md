@@ -1,32 +1,32 @@
 # school-zone-ped
 
-School-zone-ped is a desktop-oriented Python application for analyzing pedestrian trajectories from top-down drone videos. The project focuses on robust person detection, stable track IDs across frames, homography-based metric conversion, and downstream behavioral and swarm analysis.
+school-zone-ped is a local Python desktop application for analyzing pedestrian trajectories from top-down drone videos. It focuses on reliable person detection, stable track IDs across frames, homography-based metric conversion, and downstream behavior, group and swarm analysis.
 
-## Research and application focus
+## Purpose
 
-The project targets pedestrian safety research in urban crossing contexts. The workflow is designed for top-down, bird's-eye-view videos where people appear as small, partially occluded targets and where ID consistency is critical for extracting reliable trajectories.
+The project is aimed at pedestrian safety research and applied traffic analysis in bird's-eye-view recordings. Because people are small, close together and frequently partially occluded in this view, ID consistency is the core requirement for extracting usable trajectories.
 
-## Main capabilities
+## Main Features
 
-- Calibrate a top-down scene from a reference image and compute a homography
-- Extract trajectories from drone video using local detection and tracking
-- Keep track IDs stable across frames via a modular tracking adapter layer
-- Convert pixel foot points to metric coordinates and analyze kinematics
-- Label behaviors such as waiting, approaching, crossing and crossed
-- Detect groups and compute swarm-style metrics for research reporting
+- Tkinter + ttk desktop UI with three tabs for calibration, trajectory extraction and analysis
+- Homography calibration from four manually selected image points
+- Tracking-by-detection pipeline with adapter-based tracker selection
+- Metric conversion from pixel foot points to metre coordinates
+- Trajectory export as CSV and optional annotated video export
+- Behavior labeling, group analysis, swarm metrics and plotting utilities
 
-## Architecture overview
+## Architecture
 
-The codebase is organized around the following layers:
+The repository is split into clear layers:
 
-- UI: Tkinter/ttk desktop interface with calibration, extraction and analysis tabs
-- Pipeline: calibration, tracking, trajectory I/O, and analysis modules
-- Visualization: trajectory, behavior, group and swarm plots
-- Persistence: JSON/CSV/NumPy file helpers and project directory management
-- Configuration: central defaults for model selection, tracker choice and analysis thresholds
-- Tests: focused regression tests for the core analysis logic
+- UI for the local workflow and worker-thread progress updates
+- Pipeline for calibration, tracker adapters, tracking, trajectory I/O and analysis
+- Visualization for PNG/PDF export and plot generation
+- Utilities for file validation, paths, images, video IO and threading helpers
+- Configuration for defaults, tracker selection, thresholds and project paths
+- Tests for the core numerical and labeling logic
 
-## Repository structure
+## Repository Layout
 
 ```text
 school-zone-ped/
@@ -47,35 +47,34 @@ school-zone-ped/
 
 ## Installation
 
-Requires Python 3.11+.
+Python 3.11 or newer is required.
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-## Running the application
+## Start
 
-Start the local desktop app with:
+Launch the desktop application locally with:
 
 ```bash
 python app.py
 ```
 
-## Example workflow
+## Workflow
 
-1. Load a calibration image and click four reference points.
-2. Enter the corresponding world-space metre coordinates.
-3. Compute and save the homography.
-4. Load a drone video and select the saved calibration.
-5. Choose a tracker mode (BoT-SORT is the default), a model and confidence threshold.
-6. Run tracking to export annotated video and trajectory CSV output.
-7. Open the analysis tab to compute behavior, group and swarm metrics.
+1. Open a calibration image and select four pixel points.
+2. Enter the matching world points in metres.
+3. Compute and save the homography plus calibration metadata.
+4. Load a top-down drone video and the saved calibration file.
+5. Choose a tracker mode, model, confidence threshold and frame skip.
+6. Run tracking to generate preview frames, an annotated video and a trajectory CSV.
+7. Load the CSV in the analysis tab to create plots and summary statistics.
 
-## Tracking modes
+## Tracker Modes
 
-The tracking pipeline is designed around adapter-based backends:
+The tracking backend is adapter-based and selectable from the UI:
 
 - `bot_sort`: default local mode using the supervision BoT-SORT adapter
 - `byte_track`: lightweight supervision ByteTrack alternative
@@ -91,31 +90,32 @@ Research-focused tracker groups (ordered fallback):
 
 You can select either a concrete tracker or a group name via `tracker_type`.
 
-## Data and output folders
+Experimental adapters raise explicit errors unless the required implementation is added.
+
+## Data and Outputs
 
 The application uses the following folders under `pedestrian_analysis/`:
 
 - `data/videos/` for input videos
-- `data/calibration/` for saved homographies and metadata
-- `data/trajectories/` for exported CSV trajectories
-- `data/previews/` for preview frames
+- `data/calibration/` for saved homographies and calibration metadata
+- `data/trajectories/` for exported trajectory CSV files
+- `data/previews/` for preview images
 - `outputs/figures/`, `outputs/reports/`, `outputs/videos/` for generated outputs
 
-## Current status and roadmap
+## Status and Roadmap
 
-The current codebase already provides a solid local desktop workflow with:
+Current status:
 
-- Tkinter-based calibration and extraction UI
-- Homography-based metric conversion
-- trajectory CSV I/O and analysis helpers
-- modular tracker adapter hooks for future expansion
+- local desktop UI is available via Tkinter
+- calibration and trajectory analysis are wired into separate tabs
+- tracker selection is adapter-based and no longer tied to a single backend
 
-Planned work focuses on deeper tracker validation, experiment-specific adapters and more robust metric reporting for research use.
+Open roadmap items:
 
-## Experimental components
-
-The PBEVFormer integration and the OC-SORT / Deep OC-SORT adapters are clearly marked as experimental. They are included as scaffolding and raise explicit errors unless the required dependencies and implementation work are added.
+- deeper validation of experimental tracker adapters
+- optional GT-based tracking metrics such as IDF1, HOTA or MOTA
+- richer export options for reports and figures
 
 ## License
 
-This repository is currently provided as a research prototype. Add an appropriate license file before public distribution if you plan to release it more broadly.
+This repository is currently a research prototype. Add a license file before broader public distribution.

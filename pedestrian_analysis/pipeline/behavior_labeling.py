@@ -9,10 +9,10 @@ Assigns one of four states to each (id, frame) pair:
 
 from __future__ import annotations
 
-import logging
 
 import numpy as np
 import pandas as pd
+import logging
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,7 @@ def label_behaviors(
         g = group.sort_values("frame").copy()
         n = len(g)
 
-        x = g["x"].to_numpy()
+        # yi = g["y"].to_numpy()
         speed = g["speed_ms"].fillna(0.0).to_numpy()
 
         # Smooth speed to reduce noise
@@ -87,10 +87,10 @@ def label_behaviors(
         frames_arr = g["frame"].to_numpy()
 
         for i in range(n):
-            xi = x[i]
+            yi = g["y"].to_numpy()[i]
             vi = speed_s[i]
-            inside_street = street_start_m <= xi <= street_end_m
-            past_street = xi > street_end_m
+            inside_street = street_start_m <= yi <= street_end_m
+            past_street = yi > street_end_m
 
             # Hysteresis for waiting detection
             if vi < speed_threshold_ms:

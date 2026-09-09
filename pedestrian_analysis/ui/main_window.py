@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import logging
 import sys
 import tkinter as tk
 from tkinter import ttk
 
 from ui.state import AppState
 
+import logging
 logger = logging.getLogger(__name__)
 
 

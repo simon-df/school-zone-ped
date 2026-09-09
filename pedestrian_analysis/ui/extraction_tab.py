@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 import queue
 from pathlib import Path
 from typing import Optional
@@ -11,12 +10,23 @@ import numpy as np
 import tkinter as tk
 from tkinter import ttk
 
-from config import DEFAULT_CONFIDENCE, DEFAULT_FPS, DEFAULT_FRAME_SKIP, DEFAULT_MODEL_NAME, DEFAULT_TRACKER_TYPE, TRACKER_CHOICES
+from config import (
+    DEFAULT_CONFIDENCE,
+    DEFAULT_FPS,
+    DEFAULT_FRAME_SKIP,
+    DEFAULT_MODEL_NAME,
+    DEFAULT_OUTPUT_TRAJECTORY_DIR,
+    DEFAULT_OUTPUT_VIDEO_DIR,
+    DEFAULT_TRACKER_TYPE,
+    TRACKER_CHOICES,
+)
 from ui.dialogs import ask_open_file, ask_save_file, show_error, show_info, show_warning
 from ui.widgets import append_log, make_label_entry, make_scrolled_text
 from utils.image_utils import bgr_to_pil, pil_to_tkimage, scale_image_for_canvas
+from utils.paths import make_output_path
 from utils.threading_utils import WorkerTask, poll_queue
 
+import logging
 logger = logging.getLogger(__name__)
 
 _PREVIEW_W = 640
@@ -84,32 +94,29 @@ class ExtractionTab(ttk.Frame):
         )
         self._tracker_type_cb.grid(row=4, column=1, padx=4, pady=2, sticky="ew")
 
-        self._street_start_entry = make_label_entry(param_frame, "Street start X (m):", default="2.0", row=5)
-        self._street_end_entry = make_label_entry(param_frame, "Street end X (m):", default="6.0", row=6)
+        self._street_start_entry = make_label_entry(param_frame, "Street start y (m):", default="2.0", row=5)
+        self._street_end_entry = make_label_entry(param_frame, "Street end y (m):", default="6.0", row=6)
         self._speed_thresh_entry = make_label_entry(param_frame, "Speed threshold (m/s):", default="0.3", row=7)
 
-        self._pbev_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(param_frame, text="Use PBEVFormer mode", variable=self._pbev_var, command=self._toggle_pbev).grid(
-            row=8, column=0, columnspan=2, sticky="w", pady=2
-        )
+        ttk.Label(param_frame, text="Output video:", width=20, anchor="w").grid(row=8, column=0, padx=4, pady=2, sticky="w")
+        self._output_video_var = tk.StringVar(value="")
+        ttk.Entry(param_frame, textvariable=self._output_video_var, width=28).grid(row=8, column=1, padx=4, pady=2, sticky="ew")
+        ttk.Button(param_frame, text="Browse", command=self._on_browse_output_video).grid(row=8, column=2, padx=4, pady=2)
 
-        self._pbev_frame = ttk.Frame(param_frame)
-        self._pbev_frame.grid(row=9, column=0, columnspan=2, sticky="ew")
-        self._pbev_config_entry = make_label_entry(self._pbev_frame, "PBEVFormer config:", row=0)
-        self._pbev_weights_entry = make_label_entry(self._pbev_frame, "PBEVFormer weights:", row=1)
-        ttk.Button(self._pbev_frame, text="Browse config", command=lambda: self._browse_entry(self._pbev_config_entry)).grid(row=0, column=2, padx=4)
-        ttk.Button(self._pbev_frame, text="Browse weights", command=lambda: self._browse_entry(self._pbev_weights_entry)).grid(row=1, column=2, padx=4)
-        self._pbev_frame.grid_remove()
+        ttk.Label(param_frame, text="Output CSV:", width=20, anchor="w").grid(row=9, column=0, padx=4, pady=2, sticky="w")
+        self._output_csv_var = tk.StringVar(value="")
+        ttk.Entry(param_frame, textvariable=self._output_csv_var, width=28).grid(row=9, column=1, padx=4, pady=2, sticky="ew")
+        ttk.Button(param_frame, text="Browse", command=self._on_browse_output_csv).grid(row=9, column=2, padx=4, pady=2)
 
         btn_row = ttk.Frame(param_frame)
-        btn_row.grid(row=10, column=0, columnspan=2, pady=6)
+        btn_row.grid(row=10, column=0, columnspan=3, pady=6)
         self._start_btn = ttk.Button(btn_row, text="Start Extraction", command=self._on_start)
         self._start_btn.pack(side="left", padx=4)
         self._stop_btn = ttk.Button(btn_row, text="Stop", command=self._on_stop, state="disabled")
         self._stop_btn.pack(side="left", padx=4)
 
         self._progress = ttk.Progressbar(param_frame, mode="determinate", maximum=100)
-        self._progress.grid(row=11, column=0, columnspan=2, sticky="ew", padx=4, pady=4)
+        self._progress.grid(row=11, column=0, columnspan=3, sticky="ew", padx=4, pady=4)
 
         log_frame = ttk.LabelFrame(self, text="Log", padding=4)
         log_frame.grid(row=2, column=0, sticky="nsew", padx=6, pady=4)
@@ -133,6 +140,11 @@ class ExtractionTab(ttk.Frame):
         if path:
             self._video_path_var.set(path)
             self._state.video_path = Path(path)
+            stem = Path(path).stem
+            if not self._output_video_var.get():
+                self._output_video_var.set(str(make_output_path(DEFAULT_OUTPUT_VIDEO_DIR, stem, ".mp4")))
+            if not self._output_csv_var.get():
+                self._output_csv_var.set(str(make_output_path(DEFAULT_OUTPUT_TRAJECTORY_DIR, stem, ".csv")))
 
     def _on_select_calibration(self) -> None:
         from config import CALIBRATION_DIR
@@ -161,10 +173,6 @@ class ExtractionTab(ttk.Frame):
         if self._state.homography is None:
             show_warning("No calibration loaded. Metre coordinates will be invalid.")
 
-        if self._pbev_var.get():
-            self._start_pbevformer_mode()
-            return
-
         try:
             confidence = float(self._conf_entry.get())
             frame_skip = int(self._frame_skip_entry.get())
@@ -174,6 +182,8 @@ class ExtractionTab(ttk.Frame):
 
         model_name = self._model_entry.get().strip() or DEFAULT_MODEL_NAME
         tracker_type = self._tracker_type_var.get().strip() or DEFAULT_TRACKER_TYPE
+        output_video_path = self._output_video_var.get().strip()
+        output_csv_path = self._output_csv_var.get().strip()
         H = self._state.homography if self._state.homography is not None else np.eye(3)
 
         self._result_queue = queue.Queue()
@@ -192,6 +202,8 @@ class ExtractionTab(ttk.Frame):
                 "model_name": model_name,
                 "confidence": confidence,
                 "frame_skip": frame_skip,
+                "output_video_path": output_video_path or None,
+                "output_csv_path": output_csv_path or None,
                 "cancelled_fn": lambda: self._worker.is_cancelled() if self._worker else False,
                 "tracker_type": tracker_type,
             },
@@ -200,20 +212,6 @@ class ExtractionTab(ttk.Frame):
         self._worker.start()
         self._poll_queue()
 
-    def _start_pbevformer_mode(self) -> None:
-        config_path = self._pbev_config_entry.get().strip()
-        weights_path = self._pbev_weights_entry.get().strip()
-        try:
-            from pipeline.tracker_adapters import PBEVFormerTrackerAdapter
-
-            PBEVFormerTrackerAdapter(config_path, weights_path)
-        except NotImplementedError as exc:
-            show_error(f"PBEVFormer not implemented:\n{exc}")
-        except RuntimeError as exc:
-            show_error(f"PBEVFormer init failed:\n{exc}")
-        except Exception as exc:
-            show_error(f"Unexpected error:\n{exc}")
-
     def _on_stop(self) -> None:
         if self._worker and self._worker.is_alive():
             self._worker.cancel()
@@ -221,7 +219,10 @@ class ExtractionTab(ttk.Frame):
         self._stop_btn.config(state="disabled")
 
     def _on_save_video(self) -> None:
-        show_info("Annotated video is saved automatically alongside the CSV if an output path was set during extraction.")
+        if self._output_video_var.get().strip():
+            show_info(f"Annotated video will be saved to:\n{self._output_video_var.get().strip()}")
+        else:
+            show_warning("No output video path selected yet.")
 
     def _on_save_csv(self) -> None:
         if self._trajectories is None:
@@ -293,3 +294,21 @@ class ExtractionTab(ttk.Frame):
         if path:
             entry.delete(0, "end")
             entry.insert(0, path)
+
+    def _on_browse_output_video(self) -> None:
+        path = ask_save_file(
+            "Save annotated video",
+            filetypes=[("MP4 video", "*.mp4"), ("All files", "*.*")],
+            default_extension=".mp4",
+        )
+        if path:
+            self._output_video_var.set(path)
+
+    def _on_browse_output_csv(self) -> None:
+        path = ask_save_file(
+            "Save trajectories CSV",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+            default_extension=".csv",
+        )
+        if path:
+            self._output_csv_var.set(path)

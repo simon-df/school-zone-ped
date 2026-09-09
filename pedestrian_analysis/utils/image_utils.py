@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Sequence
 
 import cv2
@@ -14,6 +13,7 @@ try:
 except ImportError:  # Tkinter not available in this environment
     _ImageTk = None  # type: ignore[assignment]
 
+import logging
 logger = logging.getLogger(__name__)
 
 
