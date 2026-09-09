@@ -8,6 +8,7 @@ The pipeline is intentionally split into:
 
 from __future__ import annotations
 
+from collections import deque
 import queue
 from pathlib import Path
 from typing import Any, Callable
@@ -23,7 +24,13 @@ from config import (
     DEFAULT_FRAME_SKIP,
     DEFAULT_TRACKER_TYPE,
 )
-from pedestrian_analysis.pipeline.behavior_labeling import label_behaviors
+from pedestrian_analysis.pipeline.behavior_labeling import (
+    STATE_APPROACHING,
+    STATE_CROSSED,
+    STATE_CROSSING,
+    STATE_WAITING,
+    label_behaviors,
+)
 from pedestrian_analysis.pipeline.group_analysis import detect_groups_per_frame
 from pipeline.calibration import pixel_to_meter
 from pipeline.detectors import create_detector, resolve_detector_model
@@ -51,6 +58,67 @@ _TRAJECTORY_COLUMNS = [
     "bbox_y2",
     "confidence",
 ]
+_REFERENCE_POINT_WINDOW = 3
+_DEFAULT_BEHAVIOR_LABELING_KWARGS = {
+    "street_start_m": 2.0,
+    "street_end_m": 6.0,
+    "speed_threshold_ms": 0.5,
+    "waiting_min_frames": 10,
+    "smooth_window": 10,
+}
+_DEFAULT_BOX_COLOR = (0, 255, 0)
+_BEHAVIOR_BOX_COLORS = {
+    STATE_WAITING: (180, 130, 70),
+    STATE_APPROACHING: (0, 165, 255),
+    STATE_CROSSING: (0, 255, 0),
+    STATE_CROSSED: (128, 128, 128),
+}
+
+
+def _compute_bbox_center(bbox: np.ndarray | tuple[float, float, float, float]) -> tuple[float, float]:
+    return (float((bbox[0] + bbox[2]) / 2.0), float((bbox[1] + bbox[3]) / 2.0))
+
+
+def _get_smoothed_reference_point(
+    track_id: int,
+    bbox: np.ndarray | tuple[float, float, float, float],
+    track_points: dict[int, deque[tuple[float, float]]],
+) -> tuple[float, float]:
+    if track_id < 0:
+        return _compute_bbox_center(bbox)
+    history = track_points.setdefault(track_id, deque(maxlen=_REFERENCE_POINT_WINDOW))
+    history.append(_compute_bbox_center(bbox))
+    points = np.asarray(history, dtype=float)
+    return float(np.median(points[:, 0])), float(np.median(points[:, 1]))
+
+
+def _label_trajectory_behaviors(df: pd.DataFrame, fps: float) -> pd.DataFrame:
+    return label_behaviors(df, fps=fps, **_DEFAULT_BEHAVIOR_LABELING_KWARGS)
+
+
+def _get_current_behaviors(
+    rows: list[dict[str, Any]],
+    frame_idx: int,
+    track_ids: list[int],
+    fps: float,
+) -> list[str] | None:
+    if not rows or not track_ids:
+        return None
+
+    labeled = _label_trajectory_behaviors(pd.DataFrame(rows), fps=fps)
+    current = labeled[labeled["frame"] == frame_idx]
+    if current.empty or "behavior" not in current.columns:
+        return None
+
+    current = current.drop_duplicates(subset=["id"], keep="last")
+    behavior_by_id = current.set_index("id")["behavior"].to_dict()
+    return [str(behavior_by_id.get(track_id, "")) for track_id in track_ids]
+
+
+def _get_behavior_box_color(behavior: str | None) -> tuple[int, int, int]:
+    if behavior is None:
+        return _DEFAULT_BOX_COLOR
+    return _BEHAVIOR_BOX_COLORS.get(str(behavior).lower(), _DEFAULT_BOX_COLOR)
 
 
 def draw_tracking_annotations(
@@ -79,20 +147,22 @@ def draw_tracking_annotations(
     annotated = frame.copy()
     for i, tid in enumerate(track_ids):
         x1, y1, x2, y2 = (int(round(v)) for v in bboxes[i])
-        cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        behavior = behaviors[i] if behaviors is not None and i < len(behaviors) else None
+        box_color = _get_behavior_box_color(behavior)
+        cv2.rectangle(annotated, (x1, y1), (x2, y2), box_color, 2)
 
         label = f"ID:{tid}"
         if confidences is not None and i < len(confidences):
             label += f" {confidences[i]:.2f}"
-        if behaviors is not None and i < len(behaviors):
-            label += f" [{behaviors[i]}]"
+        if behavior:
+            label += f" [{behavior}]"
         cv2.putText(
             annotated,
             label,
             (x1, max(y1 - 5, 10)),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.5,
-            (0, 255, 0),
+            box_color,
             1,
             cv2.LINE_AA,
         )
@@ -199,6 +269,7 @@ def extract_trajectories_from_video(
         writer = create_video_writer(output_video_path, width, height, meta["fps"])
 
     rows: list[dict[str, Any]] = []
+    track_points: dict[int, deque[tuple[float, float]]] = {}
     try:
         for frame_idx, frame in iter_frames(video_path, frame_skip=frame_skip):
             detections = detector.detect(frame)
@@ -210,8 +281,7 @@ def extract_trajectories_from_video(
                 bbox = detections.xyxy[j]
                 conf = float(detections.confidence[j]) if detections.confidence is not None else 0.0
 
-                fpx = float((bbox[0] + bbox[2]) / 2)
-                fpy = float(bbox[3])
+                fpx, fpy = _get_smoothed_reference_point(int(tid), bbox, track_points)
                 xm, ym = pixel_to_meter(fpx, fpy, H)
 
                 rows.append(
@@ -236,7 +306,8 @@ def extract_trajectories_from_video(
                 feet_m.append((xm, ym))
 
             if writer is not None:
-                annotated = draw_tracking_annotations(frame, track_ids, bboxes, confs, feet_px, feet_m)
+                behaviors = _get_current_behaviors(rows, frame_idx, track_ids, meta["fps"])
+                annotated = draw_tracking_annotations(frame, track_ids, bboxes, confs, feet_px, feet_m, behaviors=behaviors)
                 writer.write(annotated)
 
             if progress_callback is not None and total_frames > 0:
@@ -246,7 +317,7 @@ def extract_trajectories_from_video(
             writer.release()
 
     df = pd.DataFrame(rows) if rows else pd.DataFrame(columns=_TRAJECTORY_COLUMNS)
-    label_behaviors(df, fps=meta["fps"])
+    df = _label_trajectory_behaviors(df, fps=meta["fps"])
     if output_csv_path is not None:
         from pipeline.trajectory_io import save_trajectories
 
@@ -311,6 +382,7 @@ def run_tracking_with_preview(
         writer = create_video_writer(output_video_path, width, height, meta["fps"])
 
     rows: list[dict[str, Any]] = []
+    track_points: dict[int, deque[tuple[float, float]]] = {}
     processed = 0
     try:
         for frame_idx, frame in iter_frames(video_path, frame_skip=frame_skip):
@@ -327,8 +399,7 @@ def run_tracking_with_preview(
                 bbox = detections.xyxy[j]
                 conf = float(detections.confidence[j]) if detections.confidence is not None else 0.0
 
-                fpx = float((bbox[0] + bbox[2]) / 2)
-                fpy = float(bbox[3])
+                fpx, fpy = _get_smoothed_reference_point(int(tid), bbox, track_points)
                 xm, ym = pixel_to_meter(fpx, fpy, H)
 
                 rows.append(
@@ -352,7 +423,8 @@ def run_tracking_with_preview(
                 feet_px.append((fpx, fpy))
                 feet_m.append((xm, ym))
 
-            annotated = draw_tracking_annotations(frame, track_ids, bboxes, confs, feet_px, feet_m)
+            behaviors = _get_current_behaviors(rows, frame_idx, track_ids, meta["fps"])
+            annotated = draw_tracking_annotations(frame, track_ids, bboxes, confs, feet_px, feet_m, behaviors=behaviors)
             if writer is not None:
                 writer.write(annotated)
 
@@ -371,7 +443,7 @@ def run_tracking_with_preview(
     send_status(result_queue, "Tracking complete.")
     send_progress(result_queue, 1.0)
     df = pd.DataFrame(rows) if rows else pd.DataFrame(columns=_TRAJECTORY_COLUMNS)
-    df = label_behaviors(df, fps=meta["fps"], street_start_m=2.0, street_end_m=6.0, speed_threshold_ms=0.5, waiting_min_frames=10, smooth_window=10)
+    df = _label_trajectory_behaviors(df, fps=meta["fps"])
     df = detect_groups_per_frame(df, proximity_m=1.5, min_group_frames=10, smooth_window=10)
 
     # df = df.append(df_behavior, ignore_index=False).append(df_groups, ignore_index=False)
