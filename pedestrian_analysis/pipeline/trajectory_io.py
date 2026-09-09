@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 
 import pandas as pd
 
 from utils.validation import validate_trajectory_dataframe, assert_is_not_directory, assert_is_file
 
+import logging
 logger = logging.getLogger(__name__)
 
 # Columns that are always written when present

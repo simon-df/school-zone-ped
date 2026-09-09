@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import Sequence
 
 import pandas as pd
 
+import logging
 logger = logging.getLogger(__name__)
 
 

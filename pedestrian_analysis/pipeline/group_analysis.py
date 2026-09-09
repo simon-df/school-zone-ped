@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import logging
 from collections import defaultdict
 
 import numpy as np
 import pandas as pd
 from sklearn.cluster import DBSCAN
+import logging
 
 logger = logging.getLogger(__name__)
 

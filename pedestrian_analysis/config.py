@@ -1,6 +1,5 @@
 """Central configuration for the Pedestrian Crossing Trajectory Analysis project."""
 
-import os
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -41,8 +40,16 @@ DPI: int = 300
 # Tracker / model defaults
 # ---------------------------------------------------------------------------
 DEFAULT_MODEL_NAME: str = "yolov8n.pt"
-DEFAULT_TRACKER_TYPE: str = "bot_sort"
-TRACKER_CHOICES: tuple[str, ...] = ("bot_sort", "byte_track", "ocsort", "deep_ocsort", "pb_evformer")
+DEFAULT_TRACKER_TYPE: str = "byte_track"
+SUPPORTED_TRACKER_TYPES: tuple[str, ...] = (
+	"bot_sort",
+	"byte_track",
+	"ocsort",
+	"deep_ocsort",
+	"pbevformer",
+)
+TRACKER_CHOICES: tuple[str, ...] = SUPPORTED_TRACKER_TYPES
+EXPERIMENTAL_TRACKER_TYPES: tuple[str, ...] = ("ocsort", "deep_ocsort", "pbevformer")
 DEFAULT_FRAME_SKIP: int = 1
 DEFAULT_CONFIDENCE: float = 0.4
 DEFAULT_FPS: float = 25.0
@@ -50,6 +57,8 @@ DEFAULT_PREVIEW_EVERY_N: int = 5
 DEFAULT_STREET_START_M: float = 2.0
 DEFAULT_STREET_END_M: float = 6.0
 DEFAULT_GRID_SPACING_M: float = 1.0
+DEFAULT_OUTPUT_VIDEO_DIR: Path = OUTPUT_VIDEOS_DIR
+DEFAULT_OUTPUT_TRAJECTORY_DIR: Path = TRAJECTORIES_DIR
 
 # ---------------------------------------------------------------------------
 # Optional experimental: PBEVFormer integration
@@ -57,3 +66,4 @@ DEFAULT_GRID_SPACING_M: float = 1.0
 PBEVFORMER_ENABLED: bool = False
 PBEVFORMER_CONFIG_PATH: str = ""
 PBEVFORMER_WEIGHTS_PATH: str = ""
+ALLOW_EXPERIMENTAL_TRACKERS: bool = True

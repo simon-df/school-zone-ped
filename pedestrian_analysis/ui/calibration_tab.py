@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import os
 from pathlib import Path
 from typing import Optional
@@ -17,6 +16,7 @@ from ui.dialogs import ask_open_file, ask_save_file, show_error, show_info, show
 from ui.widgets import make_label_entry, append_log
 from utils.image_utils import bgr_to_pil, scale_image_for_canvas, canvas_coords_to_image_coords, draw_points_on_image
 
+import logging
 logger = logging.getLogger(__name__)
 
 _CANVAS_W = 640

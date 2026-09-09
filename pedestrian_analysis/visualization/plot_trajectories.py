@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 
 import matplotlib
@@ -12,6 +11,8 @@ import matplotlib.patches as mpatches
 import numpy as np
 import pandas as pd
 
+import logging
+logger = logging.getLogger(__name__)
 
 def plot_trajectories(
     df: pd.DataFrame,
@@ -39,7 +40,7 @@ def plot_trajectories(
     fig, ax = plt.subplots(figsize=(10, 7), dpi=150)
 
     # Street zone
-    ax.axvspan(street_start_m, street_end_m, alpha=0.15, color="gray", label="Street zone")
+    ax.axhspan(street_start_m, street_end_m, alpha=0.15, color="gray", label="Street zone")
 
     colors = plt.cm.tab20.colors
     ped_ids = df["id"].unique()

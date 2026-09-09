@@ -7,7 +7,6 @@ that maps image pixel coordinates to real-world metre coordinates.
 from __future__ import annotations
 
 import json
-import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Sequence
@@ -15,6 +14,7 @@ from typing import Sequence
 import cv2
 import numpy as np
 
+import logging
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------

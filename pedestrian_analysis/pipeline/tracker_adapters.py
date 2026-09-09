@@ -5,9 +5,9 @@ select tracking backends without coupling to a single implementation.
 """
 from __future__ import annotations
 
-import logging
 from typing import Any
 
+import logging
 logger = logging.getLogger(__name__)
 
 
@@ -19,6 +19,31 @@ class BaseTrackerAdapter:
     def update_with_detections(self, detections: Any) -> Any:
         """Run tracker state update for the current detections."""
         raise NotImplementedError("Subclasses must implement update_with_detections().")
+
+
+def _normalize_tracker_type(tracker_type: str) -> str:
+    normalized = str(tracker_type).strip().lower().replace("-", "_")
+    aliases = {
+        "pb_evformer": "pbevformer",
+        "pbev_former": "pbevformer",
+    }
+    return aliases.get(normalized, normalized)
+
+
+def available_tracker_types() -> tuple[str, ...]:
+    """Return the tracker types that this repository exposes."""
+    return (
+        "bot_sort",
+        "byte_track",
+        "ocsort",
+        "deep_ocsort",
+        "pbevformer",
+    )
+
+
+def experimental_tracker_types() -> tuple[str, ...]:
+    """Return tracker types that are considered experimental."""
+    return ("ocsort", "deep_ocsort", "pbevformer")
 
 
 class UltralyticsBoTSORTAdapter(BaseTrackerAdapter):
@@ -70,7 +95,7 @@ class UltralyticsByteTrackAdapter(BaseTrackerAdapter):
         return self._tracker.update_with_detections(detections)
 
 
-class OCSORTAdapter(BaseTrackerAdapter):
+class BoxMOTOCSORTAdapter(BaseTrackerAdapter):
     """Experimental OC-SORT adapter placeholder."""
 
     name = "ocsort"
@@ -99,10 +124,10 @@ class DeepOCSORTAdapter(BaseTrackerAdapter):
         raise NotImplementedError
 
 
-class PBEVFormerTrackerAdapter(BaseTrackerAdapter):
+class PBEVFormerAdapter(BaseTrackerAdapter):
     """Experimental PBEVFormer adapter stub."""
 
-    name = "pb_evformer"
+    name = "pbevformer"
 
     def __init__(self, config_path: str, weights_path: str, **_: Any) -> None:
         from pathlib import Path
@@ -119,17 +144,22 @@ class PBEVFormerTrackerAdapter(BaseTrackerAdapter):
         raise NotImplementedError
 
 
+# Backwards-compatible aliases for older call sites.
+OCSORTAdapter = BoxMOTOCSORTAdapter
+PBEVFormerTrackerAdapter = PBEVFormerAdapter
+
+
 def create_tracker_adapter(tracker_type: str, **kwargs: Any) -> BaseTrackerAdapter:
     """Create a tracker adapter from a user-facing tracker name."""
     if not tracker_type or not str(tracker_type).strip():
         raise ValueError("tracker_type must be a non-empty tracker name")
-    normalized = str(tracker_type).strip().lower().replace("-", "_")
+    normalized = _normalize_tracker_type(tracker_type)
     registry = {
         "bot_sort": UltralyticsBoTSORTAdapter,
         "byte_track": UltralyticsByteTrackAdapter,
-        "ocsort": OCSORTAdapter,
+        "ocsort": BoxMOTOCSORTAdapter,
         "deep_ocsort": DeepOCSORTAdapter,
-        "pb_evformer": PBEVFormerTrackerAdapter,
+        "pbevformer": PBEVFormerAdapter,
     }
     adapter_cls = registry.get(normalized)
     if adapter_cls is None:

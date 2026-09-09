@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 import queue
 from pathlib import Path
 from typing import Optional
@@ -16,6 +15,7 @@ from ui.widgets import make_label_entry, append_log, make_scrolled_text
 from utils.threading_utils import WorkerTask, poll_queue
 from utils.image_utils import pil_to_tkimage, scale_image_for_canvas
 
+import logging
 logger = logging.getLogger(__name__)
 
 _PREVIEW_W = 700
@@ -64,8 +64,8 @@ class AnalysisTab(ttk.Frame):
         param_frame.columnconfigure(1, weight=1)
 
         self._fps_entry = make_label_entry(param_frame, "FPS:", default="25.0", row=0)
-        self._street_start_entry = make_label_entry(param_frame, "Street start X (m):", default="2.0", row=1)
-        self._street_end_entry = make_label_entry(param_frame, "Street end X (m):", default="6.0", row=2)
+        self._street_start_entry = make_label_entry(param_frame, "Street start y (m):", default="2.0", row=1)
+        self._street_end_entry = make_label_entry(param_frame, "Street end y (m):", default="6.0", row=2)
 
         btn_frame = ttk.LabelFrame(left, text="Actions", padding=6)
         btn_frame.grid(row=2, column=0, columnspan=2, sticky="ew", pady=4)
