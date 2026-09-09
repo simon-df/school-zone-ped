@@ -16,10 +16,17 @@ import cv2
 import numpy as np
 import pandas as pd
 
-from config import DEFAULT_CONFIDENCE, DEFAULT_FRAME_SKIP, DEFAULT_MODEL_NAME, DEFAULT_TRACKER_TYPE
+from config import (
+    DEFAULT_CONFIDENCE,
+    DEFAULT_DETECTOR_CLASSES,
+    DEFAULT_DETECTOR_TYPE,
+    DEFAULT_FRAME_SKIP,
+    DEFAULT_TRACKER_TYPE,
+)
 from pedestrian_analysis.pipeline.behavior_labeling import label_behaviors
 from pedestrian_analysis.pipeline.group_analysis import detect_groups_per_frame
 from pipeline.calibration import pixel_to_meter
+from pipeline.detectors import create_detector, resolve_detector_model
 from pipeline.tracker_adapters import create_tracker_adapter
 from utils.threading_utils import send_preview, send_progress, send_status
 from utils.video_utils import create_video_writer, get_video_metadata, iter_frames
@@ -27,7 +34,6 @@ from utils.video_utils import create_video_writer, get_video_metadata, iter_fram
 import logging
 logger = logging.getLogger(__name__)
 
-_PERSON_CLASS_ID = 0
 # Maximum gap between track fragments before a heuristic ID-switch candidate is ignored.
 _MAX_GAP_FRAMES_FOR_ID_SWITCH = 2
 # Maximum spatial distance between track endpoints that still looks like a plausible switch.
@@ -117,23 +123,54 @@ def _build_tracker_adapter(tracker_type: str | None) -> Any:
     return create_tracker_adapter(selected)
 
 
+def _parse_detector_classes(detector_classes: str | list[str] | tuple[str, ...] | None) -> tuple[str, ...]:
+    if detector_classes is None:
+        return DEFAULT_DETECTOR_CLASSES
+    if isinstance(detector_classes, str):
+        return tuple(part.strip() for part in detector_classes.split(",") if part.strip())
+    return tuple(str(part).strip() for part in detector_classes if str(part).strip())
+
+
+def _build_detector(
+    model_name: str | None,
+    confidence: float,
+    detector_type: str | None,
+    detector_classes: str | list[str] | tuple[str, ...] | None,
+    detector_kwargs: dict[str, Any] | None = None,
+) -> Any:
+    selected_detector = detector_type or DEFAULT_DETECTOR_TYPE
+    resolved_model_name = resolve_detector_model(selected_detector, model_name)
+    selected_classes = _parse_detector_classes(detector_classes)
+    logger.info("Using detector: %s (%s)", selected_detector, resolved_model_name)
+    return create_detector(
+        detector_type=selected_detector,
+        model_name=resolved_model_name,
+        confidence=confidence,
+        class_filters=selected_classes,
+        **(detector_kwargs or {}),
+    )
+
+
 def extract_trajectories_from_video(
     video_path: str | Path,
     H: np.ndarray,
-    model_name: str = DEFAULT_MODEL_NAME,
+    model_name: str | None = None,
     confidence: float = DEFAULT_CONFIDENCE,
     frame_skip: int = DEFAULT_FRAME_SKIP,
     output_video_path: str | Path | None = None,
     output_csv_path: str | Path | None = None,
     progress_callback: Callable[[float, str], None] | None = None,
     tracker_type: str | None = None,
+    detector_type: str | None = None,
+    detector_classes: str | list[str] | tuple[str, ...] | None = None,
+    detector_kwargs: dict[str, Any] | None = None,
 ) -> pd.DataFrame:
     """Extract pedestrian trajectories from *video_path* using a tracker adapter.
 
     Args:
         video_path: Source video path.
         H: Homography mapping pixel coordinates to metres.
-        model_name: YOLO model name or path.
+        model_name: Detector checkpoint name or path.
         confidence: Detection confidence threshold.
         frame_skip: Skip every ``frame_skip``-th frame.
         output_video_path: Optional annotated output video path.
@@ -141,20 +178,20 @@ def extract_trajectories_from_video(
         progress_callback: Optional callback receiving ``(fraction, message)``.
         tracker_type: Tracker adapter name (e.g. ``bot_sort``) or research group name
             (e.g. ``research_top_down_occlusion``).
+        detector_type: Detector adapter name (e.g. ``yolov8_large`` or ``rtdetr``).
+        detector_classes: Optional comma-separated class names/IDs to keep before tracking.
+        detector_kwargs: Optional detector-specific inference kwargs (e.g. ``imgsz`` or ``iou``).
 
     Returns:
         A trajectory DataFrame with the required columns ``id``, ``frame``, ``x``, ``y``,
         ``px``, ``py``, ``bbox_x1``, ``bbox_y1``, ``bbox_x2``, ``bbox_y2`` and ``confidence``.
     """
-    from ultralytics import YOLO
-    import supervision as sv
-
     video_path = Path(video_path)
     meta = get_video_metadata(video_path)
     total_frames = meta["frame_count"]
     width, height = meta["width"], meta["height"]
 
-    model = YOLO(model_name)
+    detector = _build_detector(model_name, confidence, detector_type, detector_classes, detector_kwargs)
     tracker = _build_tracker_adapter(tracker_type)
 
     writer: cv2.VideoWriter | None = None
@@ -164,8 +201,7 @@ def extract_trajectories_from_video(
     rows: list[dict[str, Any]] = []
     try:
         for frame_idx, frame in iter_frames(video_path, frame_skip=frame_skip):
-            results = model.predict(frame, conf=confidence, classes=[_PERSON_CLASS_ID], verbose=False)
-            detections = sv.Detections.from_ultralytics(results[0])
+            detections = detector.detect(frame)
             detections = tracker.update_with_detections(detections)
 
             track_ids, bboxes, confs, feet_px, feet_m = [], [], [], [], []
@@ -222,7 +258,7 @@ def run_tracking_with_preview(
     video_path: str | Path,
     H: np.ndarray,
     result_queue: queue.Queue,
-    model_name: str = DEFAULT_MODEL_NAME,
+    model_name: str | None = None,
     confidence: float = DEFAULT_CONFIDENCE,
     frame_skip: int = DEFAULT_FRAME_SKIP,
     preview_every_n: int = 5,
@@ -230,6 +266,9 @@ def run_tracking_with_preview(
     output_csv_path: str | Path | None = None,
     cancelled_fn: Callable[[], bool] | None = None,
     tracker_type: str | None = None,
+    detector_type: str | None = None,
+    detector_classes: str | list[str] | tuple[str, ...] | None = None,
+    detector_kwargs: dict[str, Any] | None = None,
 ) -> pd.DataFrame:
     """Track pedestrians while streaming preview frames and progress to *result_queue*.
 
@@ -237,7 +276,7 @@ def run_tracking_with_preview(
         video_path: Source video path.
         H: Homography mapping pixel coordinates to metres.
         result_queue: Queue receiving ``status``, ``progress``, ``preview`` and ``result`` messages.
-        model_name: YOLO model name or path.
+        model_name: Detector checkpoint name or path.
         confidence: Detection confidence threshold.
         frame_skip: Skip every ``frame_skip``-th frame.
         preview_every_n: Send preview frames every ``preview_every_n`` processed frames.
@@ -246,21 +285,25 @@ def run_tracking_with_preview(
         cancelled_fn: Optional callback returning ``True`` when the user aborts.
         tracker_type: Tracker adapter name (e.g. ``bot_sort``) or research group name
             (e.g. ``research_top_down_occlusion``).
+        detector_type: Detector adapter name (e.g. ``yolov8_large`` or ``rtdetr``).
+        detector_classes: Optional comma-separated class names/IDs to keep before tracking.
+        detector_kwargs: Optional detector-specific inference kwargs (e.g. ``imgsz`` or ``iou``).
 
     Returns:
         A trajectory DataFrame with the same required columns as :func:`extract_trajectories_from_video`.
     """
-    from ultralytics import YOLO
-    import supervision as sv
-
     video_path = Path(video_path)
     send_status(result_queue, f"Loading video: {video_path.name}")
     meta = get_video_metadata(video_path)
     total_frames = meta["frame_count"]
     width, height = meta["width"], meta["height"]
 
-    send_status(result_queue, f"Loading model: {model_name}")
-    model = YOLO(model_name)
+    resolved_model_name = resolve_detector_model(detector_type or DEFAULT_DETECTOR_TYPE, model_name)
+    send_status(
+        result_queue,
+        f"Loading detector: {detector_type or DEFAULT_DETECTOR_TYPE} ({resolved_model_name})",
+    )
+    detector = _build_detector(model_name, confidence, detector_type, detector_classes, detector_kwargs)
     tracker = _build_tracker_adapter(tracker_type)
 
     writer: cv2.VideoWriter | None = None
@@ -275,8 +318,7 @@ def run_tracking_with_preview(
                 send_status(result_queue, "Cancelled by user.")
                 break
 
-            results = model.predict(frame, conf=confidence, classes=[_PERSON_CLASS_ID], verbose=False)
-            detections = sv.Detections.from_ultralytics(results[0])
+            detections = detector.detect(frame)
             detections = tracker.update_with_detections(detections)
 
             track_ids, bboxes, confs, feet_px, feet_m = [], [], [], [], []
