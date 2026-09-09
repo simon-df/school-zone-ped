@@ -139,7 +139,8 @@ def extract_trajectories_from_video(
         output_video_path: Optional annotated output video path.
         output_csv_path: Optional CSV output path. When provided, the trajectories are saved automatically.
         progress_callback: Optional callback receiving ``(fraction, message)``.
-        tracker_type: Tracker adapter name such as ``bot_sort`` or ``byte_track``.
+        tracker_type: Tracker adapter name (e.g. ``bot_sort``) or research group name
+            (e.g. ``research_top_down_occlusion``).
 
     Returns:
         A trajectory DataFrame with the required columns ``id``, ``frame``, ``x``, ``y``,
@@ -243,7 +244,8 @@ def run_tracking_with_preview(
         output_video_path: Optional annotated output video path.
         output_csv_path: Optional CSV output path. When provided, the trajectories are saved automatically.
         cancelled_fn: Optional callback returning ``True`` when the user aborts.
-        tracker_type: Tracker adapter name such as ``bot_sort`` or ``byte_track``.
+        tracker_type: Tracker adapter name (e.g. ``bot_sort``) or research group name
+            (e.g. ``research_top_down_occlusion``).
 
     Returns:
         A trajectory DataFrame with the same required columns as :func:`extract_trajectories_from_video`.

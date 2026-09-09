@@ -42,11 +42,14 @@ DPI: int = 300
 DEFAULT_MODEL_NAME: str = "yolov8n.pt"
 DEFAULT_TRACKER_TYPE: str = "byte_track"
 SUPPORTED_TRACKER_TYPES: tuple[str, ...] = (
-	"bot_sort",
-	"byte_track",
-	"ocsort",
-	"deep_ocsort",
-	"pbevformer",
+    "bot_sort",
+    "byte_track",
+    "ocsort",
+    "deep_ocsort",
+    "pb_evformer",
+    "research_top_down_general",
+    "research_top_down_occlusion",
+    "research_top_down_small_targets",
 )
 TRACKER_CHOICES: tuple[str, ...] = SUPPORTED_TRACKER_TYPES
 EXPERIMENTAL_TRACKER_TYPES: tuple[str, ...] = ("ocsort", "deep_ocsort", "pbevformer")
