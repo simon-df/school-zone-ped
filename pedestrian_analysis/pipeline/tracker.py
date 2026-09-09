@@ -84,6 +84,8 @@ def _get_smoothed_reference_point(
     bbox: np.ndarray | tuple[float, float, float, float],
     track_points: dict[int, deque[tuple[float, float]]],
 ) -> tuple[float, float]:
+    if track_id < 0:
+        return _compute_bbox_center(bbox)
     history = track_points.setdefault(track_id, deque(maxlen=_REFERENCE_POINT_WINDOW))
     history.append(_compute_bbox_center(bbox))
     points = np.asarray(history, dtype=float)
