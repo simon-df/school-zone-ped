@@ -68,8 +68,8 @@ DEFAULT_FRAME_SKIP: int = 1
 DEFAULT_CONFIDENCE: float = 0.4
 DEFAULT_FPS: float = 25.0
 DEFAULT_PREVIEW_EVERY_N: int = 5
-DEFAULT_STREET_START_M: float = 2.0
-DEFAULT_STREET_END_M: float = 6.0
+DEFAULT_STREET_START_M: float = 0.0
+DEFAULT_STREET_END_M: float = 4.5
 DEFAULT_GRID_SPACING_M: float = 1.0
 DEFAULT_OUTPUT_VIDEO_DIR: Path = OUTPUT_VIDEOS_DIR
 DEFAULT_OUTPUT_TRAJECTORY_DIR: Path = TRAJECTORIES_DIR
@@ -81,3 +81,57 @@ PBEVFORMER_ENABLED: bool = False
 PBEVFORMER_CONFIG_PATH: str = ""
 PBEVFORMER_WEIGHTS_PATH: str = ""
 ALLOW_EXPERIMENTAL_TRACKERS: bool = True
+
+# ---------------------------------------------------------------------------
+# Trajectory prediction (TP) adapter defaults
+# Phase 1 shipped "dummy" (constant-velocity). Phase 2 adds torch-backed
+# social_lstm / social_gan / transformer adapters (random weights unless a
+# checkpoint path is set below; see pipeline.tp_adapters for details).
+# ---------------------------------------------------------------------------
+ENABLE_TP_PREDICTION: bool = False
+DEFAULT_TP_MODEL_TYPE: str = "dummy"
+SUPPORTED_TP_MODEL_TYPES: tuple[str, ...] = ("dummy", "social_lstm", "social_gan", "transformer")
+TP_MODEL_CHOICES: tuple[str, ...] = SUPPORTED_TP_MODEL_TYPES
+DEFAULT_TP_OBS_LEN: int = 20   # frames, ~2s at 10Hz
+DEFAULT_TP_PRED_LEN: int = 30  # frames, ~3s at 10Hz
+DEFAULT_TP_NUM_MODES: int = 1
+
+TP_MODEL_DEFAULTS: dict[str, dict] = {
+    "dummy": {
+        "checkpoint": None,
+        "obs_len": DEFAULT_TP_OBS_LEN,
+        "pred_len": DEFAULT_TP_PRED_LEN,
+        "num_modes": 1,
+    },
+    "social_lstm": {
+        "checkpoint": None,  # set to a trained .pt state_dict path once available
+        "obs_len": DEFAULT_TP_OBS_LEN,
+        "pred_len": DEFAULT_TP_PRED_LEN,
+        "embedding_dim": 64,
+        "hidden_dim": 64,
+        "num_modes": 5,
+    },
+    "social_gan": {
+        "checkpoint": None,
+        "obs_len": DEFAULT_TP_OBS_LEN,
+        "pred_len": DEFAULT_TP_PRED_LEN,
+        "embedding_dim": 64,
+        "hidden_dim": 64,
+        "noise_dim": 8,
+        "num_modes": 20,
+    },
+    "transformer": {
+        "checkpoint": None,
+        "obs_len": DEFAULT_TP_OBS_LEN,
+        "pred_len": DEFAULT_TP_PRED_LEN,
+        "num_modes": 10,
+        "d_model": 128,
+        "nhead": 8,
+        "num_layers": 2,
+    },
+}
+
+TP_MODEL_GROUPS: dict[str, tuple[str, ...]] = {
+    "research_classical": ("social_lstm", "social_gan", "dummy"),
+    "research_transformer": ("transformer", "dummy"),
+}

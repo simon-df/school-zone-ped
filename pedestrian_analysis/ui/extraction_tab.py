@@ -18,8 +18,13 @@ from config import (
     DEFAULT_FRAME_SKIP,
     DEFAULT_OUTPUT_TRAJECTORY_DIR,
     DEFAULT_OUTPUT_VIDEO_DIR,
+    DEFAULT_TP_MODEL_TYPE,
+    DEFAULT_TP_NUM_MODES,
+    DEFAULT_TP_PRED_LEN,
     DETECTOR_CHOICES,
     DEFAULT_TRACKER_TYPE,
+    TP_MODEL_CHOICES,
+    TP_MODEL_GROUPS,
     TRACKER_CHOICES,
 )
 from pipeline.detectors import DETECTOR_DEFAULT_MODELS, resolve_detector_model
@@ -50,6 +55,7 @@ class ExtractionTab(ttk.Frame):
         self._worker: Optional[WorkerTask] = None
         self._result_queue: queue.Queue = queue.Queue()
         self._trajectories = None
+        self._predictions = None
         self._tk_preview = None
 
         self._last_detector_default_model = DETECTOR_DEFAULT_MODELS[DEFAULT_DETECTOR_TYPE]
@@ -144,6 +150,37 @@ class ExtractionTab(ttk.Frame):
 
         self._progress = ttk.Progressbar(param_frame, mode="determinate", maximum=100)
         self._progress.grid(row=13, column=0, columnspan=3, sticky="ew", padx=4, pady=4)
+
+        tp_frame = ttk.LabelFrame(param_frame, text="Trajectory Prediction (TP)", padding=6)
+        tp_frame.grid(row=14, column=0, columnspan=3, sticky="ew", padx=4, pady=(8, 2))
+        tp_frame.columnconfigure(1, weight=1)
+
+        self._tp_enabled_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            tp_frame, text="Enable prediction after extraction", variable=self._tp_enabled_var
+        ).grid(row=0, column=0, columnspan=2, sticky="w", padx=4, pady=2)
+
+        ttk.Label(tp_frame, text="TP model:", width=20, anchor="w").grid(row=1, column=0, padx=4, pady=2, sticky="w")
+        self._tp_model_var = tk.StringVar(value=DEFAULT_TP_MODEL_TYPE)
+        ttk.Combobox(
+            tp_frame,
+            textvariable=self._tp_model_var,
+            state="readonly",
+            values=list(TP_MODEL_CHOICES) + list(TP_MODEL_GROUPS.keys()),
+            width=28,
+        ).grid(row=1, column=1, padx=4, pady=2, sticky="ew")
+
+        self._tp_pred_len_entry = make_label_entry(
+            tp_frame, "Pred length (frames):", default=str(DEFAULT_TP_PRED_LEN), row=2
+        )
+        self._tp_num_modes_entry = make_label_entry(
+            tp_frame, "Num modes:", default=str(DEFAULT_TP_NUM_MODES), row=3
+        )
+
+        self._tp_export_btn = ttk.Button(
+            tp_frame, text="Export Video with Predictions", command=self._on_export_tp_video, state="disabled"
+        )
+        self._tp_export_btn.grid(row=4, column=0, columnspan=2, pady=4)
 
         log_frame = ttk.LabelFrame(self, text="Log", padding=4)
         log_frame.grid(row=2, column=0, sticky="nsew", padx=6, pady=4)
@@ -300,6 +337,8 @@ class ExtractionTab(ttk.Frame):
             elif mtype == "result":
                 self._trajectories = payload
                 append_log(self._log_text, f"Extraction complete. {len(payload)} rows collected.")
+                if self._tp_enabled_var.get():
+                    self._run_tp_prediction()
             elif mtype == "error":
                 exc, tb = payload
                 show_error(f"Worker error: {exc}\n\n{tb}")
@@ -328,6 +367,85 @@ class ExtractionTab(ttk.Frame):
             self._pbev_frame.grid()
         else:
             self._pbev_frame.grid_remove()
+
+    def _run_tp_prediction(self) -> None:
+        if self._trajectories is None or self._trajectories.empty:
+            append_log(self._log_text, "TP: no trajectories to predict from.")
+            return
+
+        try:
+            pred_len = int(self._tp_pred_len_entry.get())
+            num_modes = int(self._tp_num_modes_entry.get())
+        except ValueError as exc:
+            show_error(f"Invalid TP parameter: {exc}")
+            return
+
+        tp_model_type = self._tp_model_var.get().strip() or DEFAULT_TP_MODEL_TYPE
+        try:
+            fps = float(self._fps_entry.get() or DEFAULT_FPS)
+        except ValueError:
+            fps = DEFAULT_FPS
+
+        from pipeline.tp_adapters import predict_trajectories_from_dataframe
+
+        try:
+            self._predictions = predict_trajectories_from_dataframe(
+                self._trajectories,
+                tp_type=tp_model_type,
+                pred_len=pred_len,
+                num_modes=num_modes,
+                fps=fps,
+            )
+        except Exception as exc:
+            show_error(f"TP prediction failed: {exc}")
+            return
+
+        append_log(
+            self._log_text,
+            f"TP: generated {len(self._predictions)} prediction rows using '{tp_model_type}'.",
+        )
+        self._tp_export_btn.config(state="normal" if not self._predictions.empty else "disabled")
+
+    def _on_export_tp_video(self) -> None:
+        if self._trajectories is None or self._predictions is None or self._predictions.empty:
+            show_warning("Run extraction with TP enabled first.")
+            return
+        video_path = self._video_path_var.get()
+        if not video_path:
+            show_error("No source video selected.")
+            return
+
+        from utils.paths import make_output_path
+
+        default_path = make_output_path(DEFAULT_OUTPUT_VIDEO_DIR, Path(video_path).stem + "_tp", ".mp4")
+        out_path = ask_save_file(
+            "Save annotated video with predictions",
+            filetypes=[("MP4 video", "*.mp4")],
+            default_extension=".mp4",
+            initialdir=str(DEFAULT_OUTPUT_VIDEO_DIR),
+        )
+        out_path = out_path or str(default_path)
+
+        H = self._state.homography if self._state.homography is not None else np.eye(3)
+        try:
+            frame_skip = int(self._frame_skip_entry.get())
+        except ValueError:
+            frame_skip = DEFAULT_FRAME_SKIP
+
+        from pipeline.tracker import export_video_with_predictions
+
+        try:
+            result_path = export_video_with_predictions(
+                video_path=video_path,
+                df_observed=self._trajectories,
+                df_predictions=self._predictions,
+                output_path=out_path,
+                H=H,
+                frame_skip=frame_skip,
+            )
+            show_info(f"Prediction video saved to:\n{result_path}")
+        except Exception as exc:
+            show_error(f"Failed to export prediction video: {exc}")
 
     def _browse_entry(self, entry: ttk.Entry) -> None:
         path = ask_open_file("Select file")

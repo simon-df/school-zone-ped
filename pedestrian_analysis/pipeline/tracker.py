@@ -60,8 +60,8 @@ _TRAJECTORY_COLUMNS = [
 ]
 _REFERENCE_POINT_WINDOW = 3
 _DEFAULT_BEHAVIOR_LABELING_KWARGS = {
-    "street_start_m": 2.0,
-    "street_end_m": 6.0,
+    "street_start_m": 0.0,
+    "street_end_m": 4.5,
     "speed_threshold_ms": 0.5,
     "waiting_min_frames": 10,
     "smooth_window": 10,
@@ -481,6 +481,200 @@ def run_tracking_with_preview(
 
         save_trajectories(df, output_csv_path)
     return df
+
+
+def extract_trajectories_with_prediction(
+    video_path: str | Path,
+    H: np.ndarray,
+    tp_model_type: str = "dummy",
+    tp_config: dict[str, Any] | None = None,
+    output_predictions_csv_path: str | Path | None = None,
+    **extract_kwargs: Any,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Extract observed trajectories and generate trajectory predictions (TP).
+
+    Thin wrapper around :func:`extract_trajectories_from_video`: it does not
+    change the observed-trajectory extraction logic, it only adds an
+    optional trajectory-prediction pass on top via
+    :func:`pipeline.tp_adapters.predict_trajectories_from_dataframe`.
+
+    Args:
+        video_path: Source video path.
+        H: Homography mapping pixel coordinates to metres.
+        tp_model_type: TP adapter/group name (e.g. ``dummy``, ``social_lstm``,
+            ``research_classical``). See ``config.TP_MODEL_DEFAULTS``.
+        tp_config: Optional overrides for TP hyperparameters
+            (``obs_len``, ``pred_len``, ``num_modes`` and adapter-specific kwargs).
+            Defaults are taken from ``config.TP_MODEL_DEFAULTS``.
+        output_predictions_csv_path: Optional path to save the predictions DataFrame.
+        **extract_kwargs: Forwarded to :func:`extract_trajectories_from_video`
+            (e.g. ``model_name``, ``tracker_type``, ``output_csv_path``).
+
+    Returns:
+        ``(df_observed, df_predictions)``.
+    """
+    from config import TP_MODEL_DEFAULTS
+    from pipeline.tp_adapters import predict_trajectories_from_dataframe
+
+    df_observed = extract_trajectories_from_video(video_path, H, **extract_kwargs)
+    fps = get_video_metadata(video_path)["fps"]
+
+    defaults = dict(TP_MODEL_DEFAULTS.get(tp_model_type, {}))
+    defaults.update(tp_config or {})
+    obs_len = defaults.pop("obs_len", None)
+    pred_len = defaults.pop("pred_len", 30)
+    num_modes = defaults.pop("num_modes", 1)
+
+    df_predictions = predict_trajectories_from_dataframe(
+        df_observed,
+        tp_type=tp_model_type,
+        obs_len=obs_len,
+        pred_len=pred_len,
+        num_modes=num_modes,
+        fps=fps,
+        **defaults,
+    )
+
+    if output_predictions_csv_path is not None:
+        output_predictions_csv_path = Path(output_predictions_csv_path)
+        output_predictions_csv_path.parent.mkdir(parents=True, exist_ok=True)
+        df_predictions.to_csv(str(output_predictions_csv_path), index=False)
+        logger.info("Saved %d TP prediction rows to '%s'", len(df_predictions), output_predictions_csv_path)
+
+    return df_observed, df_predictions
+
+
+_PREDICTION_MODE_COLORS = (
+    (255, 0, 255),
+    (255, 255, 0),
+    (0, 255, 255),
+    (255, 128, 0),
+    (128, 0, 255),
+)
+
+
+def _draw_dashed_line(
+    frame: np.ndarray,
+    start: tuple[int, int],
+    end: tuple[int, int],
+    color: tuple[int, int, int],
+    dash_len: int = 8,
+) -> None:
+    x1, y1 = start
+    x2, y2 = end
+    length = float(np.hypot(x2 - x1, y2 - y1))
+    if length < 1e-6:
+        return
+    steps = max(int(length // dash_len), 1)
+    for i in range(0, steps, 2):
+        t0 = i / steps
+        t1 = min((i + 1) / steps, 1.0)
+        p0 = (int(round(x1 + (x2 - x1) * t0)), int(round(y1 + (y2 - y1) * t0)))
+        p1 = (int(round(x1 + (x2 - x1) * t1)), int(round(y1 + (y2 - y1) * t1)))
+        cv2.line(frame, p0, p1, color, 2, cv2.LINE_AA)
+
+
+def draw_prediction_overlay(
+    frame: np.ndarray,
+    predictions_for_frame: pd.DataFrame,
+    last_observed_px: dict[int, tuple[float, float]],
+    H: np.ndarray,
+) -> np.ndarray:
+    """Draw dashed, per-mode predicted-trajectory overlays on a frame copy.
+
+    Args:
+        frame: Source BGR image.
+        predictions_for_frame: Rows of the predictions DataFrame (as returned by
+            :func:`pipeline.tp_adapters.predict_trajectories_from_dataframe`)
+            relevant to the pedestrians visible in *frame*.
+        last_observed_px: Per-track last observed pixel position, used as the
+            start point of each predicted mode's dashed line.
+        H: Homography mapping pixel coordinates to metres (used inversely).
+
+    Returns:
+        An annotated copy of *frame*.
+    """
+    from pipeline.calibration import meter_to_pixel
+
+    annotated = frame.copy()
+    if predictions_for_frame.empty:
+        return annotated
+
+    for track_id, track_rows in predictions_for_frame.groupby("id"):
+        start_px = last_observed_px.get(int(track_id))
+        if start_px is None:
+            continue
+        for mode_idx, mode_rows in track_rows.sort_values("frame_offset").groupby("mode"):
+            color = _PREDICTION_MODE_COLORS[int(mode_idx) % len(_PREDICTION_MODE_COLORS)]
+            prev_px = start_px
+            for _, row in mode_rows.iterrows():
+                px, py = meter_to_pixel(float(row["x_pred"]), float(row["y_pred"]), H)
+                prev_pt = (int(round(prev_px[0])), int(round(prev_px[1])))
+                curr_pt = (int(round(px)), int(round(py)))
+                _draw_dashed_line(annotated, prev_pt, curr_pt, color)
+                prev_px = (px, py)
+
+    return annotated
+
+
+def export_video_with_predictions(
+    video_path: str | Path,
+    df_observed: pd.DataFrame,
+    df_predictions: pd.DataFrame,
+    output_path: str | Path,
+    H: np.ndarray,
+    frame_skip: int = DEFAULT_FRAME_SKIP,
+) -> Path:
+    """Re-render *video_path* with observed tracks and TP predictions overlaid.
+
+    Args:
+        video_path: Source video path.
+        df_observed: Observed trajectory DataFrame (``id``, ``frame``, ``px``, ``py``, ...).
+        df_predictions: Predictions DataFrame from
+            :func:`pipeline.tp_adapters.predict_trajectories_from_dataframe`
+            (``id``, ``mode``, ``frame``, ``frame_offset``, ``x_pred``, ``y_pred``, ...).
+        output_path: Destination video file path.
+        H: Homography mapping pixel coordinates to metres.
+        frame_skip: Must match the ``frame_skip`` used during extraction.
+
+    Returns:
+        :class:`pathlib.Path` to the written video.
+    """
+    video_path = Path(video_path)
+    output_path = Path(output_path)
+    meta = get_video_metadata(video_path)
+    writer = create_video_writer(output_path, meta["width"], meta["height"], meta["fps"])
+
+    predictions_by_source_frame = (
+        {frame: rows for frame, rows in df_predictions.assign(
+            source_frame=lambda d: d["frame"] - d["frame_offset"]
+        ).groupby("source_frame")}
+        if not df_predictions.empty
+        else {}
+    )
+    observed_by_frame = (
+        {frame: rows for frame, rows in df_observed.groupby("frame")} if not df_observed.empty else {}
+    )
+    last_observed_px: dict[int, tuple[float, float]] = {}
+
+    try:
+        for frame_idx, frame in iter_frames(video_path, frame_skip=frame_skip):
+            observed_rows = observed_by_frame.get(frame_idx)
+            if observed_rows is not None:
+                for _, row in observed_rows.iterrows():
+                    last_observed_px[int(row["id"])] = (float(row["px"]), float(row["py"]))
+
+            predictions_for_frame = predictions_by_source_frame.get(frame_idx)
+            if predictions_for_frame is not None and not predictions_for_frame.empty:
+                annotated = draw_prediction_overlay(frame, predictions_for_frame, last_observed_px, H)
+            else:
+                annotated = frame
+            writer.write(annotated)
+    finally:
+        writer.release()
+
+    logger.info("Exported prediction-annotated video to '%s'", output_path)
+    return output_path
 
 
 def compute_tracking_metrics(df: pd.DataFrame) -> dict[str, Any]:

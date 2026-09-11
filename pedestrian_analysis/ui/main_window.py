@@ -41,14 +41,17 @@ class PedestrianAnalysisApp:
         from ui.calibration_tab import CalibrationTab
         from ui.extraction_tab import ExtractionTab
         from ui.analysis_tab import AnalysisTab
+        from ui.tabs_tp_analysis import TPAnalysisTab
 
         self._calib_tab = CalibrationTab(self._notebook, self._state)
         self._extract_tab = ExtractionTab(self._notebook, self._state)
         self._analysis_tab = AnalysisTab(self._notebook, self._state)
+        self._tp_analysis_tab = TPAnalysisTab(self._notebook, self._state)
 
         self._notebook.add(self._calib_tab, text="  Kalibrierung  ")
         self._notebook.add(self._extract_tab, text="  Trajektorienextraktion  ")
         self._notebook.add(self._analysis_tab, text="  Analyse  ")
+        self._notebook.add(self._tp_analysis_tab, text="  TP Analyse  ")
 
         # Status bar
         self._status_var = tk.StringVar(value="Ready")

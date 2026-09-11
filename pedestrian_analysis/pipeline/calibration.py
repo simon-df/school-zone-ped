@@ -71,6 +71,27 @@ def pixel_to_meter(px: float, py: float, H: np.ndarray) -> tuple[float, float]:
     return x_m, y_m
 
 
+def meter_to_pixel(x_m: float, y_m: float, H: np.ndarray) -> tuple[float, float]:
+    """Transform a single metre coordinate back to pixel coordinates using *H*.
+
+    Inverse of :func:`pixel_to_meter`; used to render metric predictions
+    (e.g. trajectory-prediction output) back onto video frames.
+
+    Args:
+        x_m: X coordinate in metres.
+        y_m: Y coordinate in metres.
+        H: 3 × 3 homography matrix returned by :func:`compute_homography`.
+
+    Returns:
+        ``(px, py)`` in pixel coordinates.
+    """
+    H_inv = np.linalg.inv(H)
+    dst_pt = np.array([[[x_m, y_m]]], dtype=np.float64)
+    src_pt = cv2.perspectiveTransform(dst_pt, H_inv)
+    px, py = float(src_pt[0, 0, 0]), float(src_pt[0, 0, 1])
+    return px, py
+
+
 def validate_calibration(
     frame: np.ndarray,
     H: np.ndarray,
