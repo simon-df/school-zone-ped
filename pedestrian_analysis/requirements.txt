@@ -17,6 +17,13 @@ pedpy>=1.1.0
 # Trajectory prediction (Phase 2 TP adapters)
 torch>=2.0
 
+# Optional: only needed if you vendor the official Social-STGCNN code
+# (pipeline.tp_adapters.SocialSTGCNNAdapter is a not-implemented placeholder
+# without them). Not required for the built-in dummy/social_lstm/social_gan/
+# transformer adapters.
+# networkx>=2.5
+# tqdm>=4.60.0
+
 # Visualization
 plotly>=5.18.0
 matplotlib>=3.7.0

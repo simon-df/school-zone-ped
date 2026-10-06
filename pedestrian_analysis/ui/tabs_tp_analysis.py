@@ -170,19 +170,22 @@ class TPAnalysisTab(ttk.Frame):
         num_modes = int(self._controls.num_modes_var.get())
         pred_len = int(self._controls.pred_len_var.get())
         adapter_name = self._controls.selected_adapter_name()
+        checkpoint_path = self._controls.checkpoint_path()
 
         predictions: dict[int, np.ndarray] = {}
         elapsed_ms: float | None = None
 
         if adapter_name is None:
-            show_warning(f"TP model '{self._controls.model_var.get()}' is not implemented yet.")
+            show_warning(f"TP model '{self._controls.model_var.get()}' is not registered.")
         elif history:
             track_ids, positions = stack_observations(history)
             if positions.shape[1] >= 2:
                 try:
-                    from pipeline.tp_adapters import create_tp_adapter
+                    from pipeline.tp_model_registry import TPModelRegistry
 
-                    adapter = create_tp_adapter(adapter_name, pred_len=pred_len)
+                    adapter = TPModelRegistry.create_adapter(
+                        adapter_name, checkpoint_path=checkpoint_path, pred_len=pred_len
+                    )
                     start = time.perf_counter()
                     batch_predictions = adapter.predict(positions, num_modes=num_modes, pred_len=pred_len)
                     elapsed_ms = (time.perf_counter() - start) * 1000.0

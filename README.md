@@ -199,6 +199,32 @@ The application uses the following folders under `pedestrian_analysis/`:
 - `data/previews/` for preview images
 - `outputs/figures/`, `outputs/reports/`, `outputs/videos/` for generated outputs
 
+## Trajectory Prediction (TP) Models
+
+The **TP Analyse** tab lets you load a trajectory CSV, view all trajectories via PedPy, and step through frames to preview predicted future trajectories. Models are managed by `pipeline.tp_model_registry.TPModelRegistry`, which tracks checkpoint requirements per model and validates checkpoint paths before creating an adapter.
+
+| UI model name       | Checkpoint | Status |
+|----------------------|:---------:|--------|
+| `constant_velocity`  | not required | Implemented (`DummyTPAdapter`) |
+| `social_lstm`        | optional  | Implemented, from-scratch reimplementation (`pipeline.tp_models.SocialLSTMNet`); runs with random weights unless you train and pass your own checkpoint |
+| `social_gan`         | optional  | Implemented, from-scratch reimplementation (`pipeline.tp_models.SocialGANNet`); **not** compatible with the official [agrimgupta92/sgan](https://github.com/agrimgupta92/sgan) checkpoints (different architecture/state_dict keys) |
+| `transformer`        | optional  | Implemented, custom architecture (`pipeline.tp_models.TransformerTPNet`); no published checkpoint exists for it |
+| `social_stgcnn`      | **required** | Not implemented — selecting it raises a clear error. Official repo: [abduallahmohamed/Social-STGCNN](https://github.com/abduallahmohamed/Social-STGCNN) |
+| `trajectron_pp`      | **required** | Not implemented — selecting it raises a clear error. Official repo: [StanfordASL/Trajectron-plus-plus](https://github.com/StanfordASL/Trajectron-plus-plus) |
+
+Important: the official Social-GAN / Social-STGCNN / Trajectron++ checkpoints were all trained on ETH/UCY (or nuScenes) pedestrian data from oblique/side-view cameras at low frame rates (2.5–10 Hz), not top-down drone footage — even a fully integrated model would likely need fine-tuning on your own data to perform well here.
+
+### Fetching official reference checkpoints (optional)
+
+A helper script can clone the official repos and copy their bundled checkpoints for inspection, e.g. if you plan to vendor the official model code yourself:
+
+```bash
+python -m scripts.download_tp_models --model social_gan --output-dir models/trajectory_prediction/
+python -m scripts.download_tp_models --model social_stgcnn --output-dir models/trajectory_prediction/
+```
+
+These checkpoints will **not** load into this repo's built-in adapters — see the table above.
+
 ## Status and Roadmap
 
 Current status:

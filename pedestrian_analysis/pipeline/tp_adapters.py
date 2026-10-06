@@ -305,11 +305,64 @@ class TransformerTPAdapter(_TorchTPAdapter):
         return self._reconstruct_absolute(last_point, pred_diffs.numpy())
 
 
+class SocialSTGCNNAdapter(BaseTPAdapter):
+    """Placeholder for Social-STGCNN (spatio-temporal graph convolutions).
+
+    Not implemented in this repository: the official model architecture
+    (ST-GCNN + TXP-CNN) and its graph-construction code are not vendored
+    here. Raises immediately, mirroring the pattern used for unimplemented
+    tracker adapters in :mod:`pipeline.adapters.experimental_adapters`.
+    """
+
+    name = "social_stgcnn"
+
+    def __init__(self, **_: Any) -> None:
+        raise NotImplementedError(
+            "Social-STGCNN is not implemented in this repository.\n"
+            "Official repository: https://github.com/abduallahmohamed/Social-STGCNN\n"
+            "Pretrained checkpoints (ETH/HOTEL/UNIV/ZARA1/ZARA2) ship in that repo's "
+            "checkpoint/ directory, trained at obs_len=8, pred_len=12, 2.5 Hz. "
+            "Integrating this model requires vendoring its ST-GCNN/TXP-CNN modules "
+            "and graph-construction preprocessing; use 'dummy', 'social_lstm', "
+            "'social_gan' or 'transformer' for now."
+        )
+
+    def predict(self, observed_trajectories: np.ndarray, num_modes: int = 1, **kwargs: Any) -> np.ndarray:  # pragma: no cover
+        raise NotImplementedError
+
+
+class TrajectronPPAdapter(BaseTPAdapter):
+    """Placeholder for Trajectron++ (dynamic graphs + CVAE, heterogeneous agents).
+
+    Not implemented in this repository: Trajectron++ requires Scene/Node
+    data structures, a dynamics-integration layer and CVAE decoder from the
+    official codebase, which are not vendored here.
+    """
+
+    name = "trajectron_pp"
+
+    def __init__(self, **_: Any) -> None:
+        raise NotImplementedError(
+            "Trajectron++ is not implemented in this repository.\n"
+            "Official repository: https://github.com/StanfordASL/Trajectron-plus-plus\n"
+            "Pretrained models (nuScenes, ETH/UCY) are stored as model directories "
+            "with config.json + checkpoint files under experiments/<dataset>/models/. "
+            "Integrating this model requires vendoring its Scene/Node data pipeline "
+            "and CVAE decoder; use 'dummy', 'social_lstm', 'social_gan' or "
+            "'transformer' for now."
+        )
+
+    def predict(self, observed_trajectories: np.ndarray, num_modes: int = 1, **kwargs: Any) -> np.ndarray:  # pragma: no cover
+        raise NotImplementedError
+
+
 TP_ADAPTER_REGISTRY: dict[str, type[BaseTPAdapter]] = {
     "dummy": DummyTPAdapter,
     "social_lstm": SocialLSTMAdapter,
     "social_gan": SocialGANAdapter,
     "transformer": TransformerTPAdapter,
+    "social_stgcnn": SocialSTGCNNAdapter,
+    "trajectron_pp": TrajectronPPAdapter,
 }
 
 TP_MODEL_GROUPS: dict[str, tuple[str, ...]] = {
