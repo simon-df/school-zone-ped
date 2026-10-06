@@ -334,7 +334,7 @@ def fit(
     opt_d: Optional[torch.optim.Optimizer] = None
     if cfg.model == "social_gan":
         disc = TrajectoryDiscriminator(cfg.embedding_dim, cfg.hidden_dim, input_scale=cfg.fps).to(device)
-        opt_d = torch.optim.Adam(disc.parameters(), lr=cfg.d_lr or cfg.lr)
+        opt_d = torch.optim.Adam(disc.parameters(), lr=cfg.d_lr if cfg.d_lr is not None else cfg.lr)
 
     start_epoch = 1
     best_val = math.inf
@@ -397,7 +397,9 @@ def fit(
                 opt_d.zero_grad()
                 d_loss.backward()
                 opt_d.step()
+                disc.requires_grad_(False)
                 adv = generator_adversarial_loss(disc(fake_traj))
+                disc.requires_grad_(True)
                 loss = loss + cfg.adv_weight * adv
                 sums["adv"] += adv.item()
                 sums["d_loss"] += d_loss.item()

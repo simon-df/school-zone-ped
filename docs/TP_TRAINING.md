@@ -1,6 +1,6 @@
 # Trajectory-Prediction Training (Social-LSTM / Social-GAN)
 
-This guide covers training the built-in `social_lstm` and `social_gan` TP models: pretraining on ETH/UCY, zero-shot evaluation on your own drone CSVs, fine-tuning on your own recordings, and loading the result in the **TP Analyse** tab.
+This guide covers training the built-in `social_lstm` and `social_gan` TP models: pretraining on ETH/UCY, zero-shot evaluation on your own drone CSVs, fine-tuning on your own recordings, and loading the result in the **TP Analyse** (TP Analysis) tab.
 
 All commands run from the `pedestrian_analysis/` directory, which is the import root (`pipeline.`, `training.`, ...):
 

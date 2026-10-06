@@ -115,7 +115,7 @@ def cross_validate(cfg: TrainConfig, cv_folds: int, val_fraction: float, final_f
                                 if len(remaining) >= 3 else (remaining, []))
         fold_dir = output_dir / f"fold_{idx:02d}"
         logger.info("Fold %d/%d: test=%s val=%s train=%d recordings", idx + 1, len(folds), test_recs, val_recs, len(train_recs))
-        fold_cfg = replace(cfg, output_dir=str(fold_dir), augment=augment)
+        fold_cfg = replace(cfg, output_dir=str(fold_dir), augment=augment, resume=None)
         result = fit(
             fold_cfg,
             full.subset(train_recs, augment=augment),
@@ -149,7 +149,7 @@ def cross_validate(cfg: TrainConfig, cv_folds: int, val_fraction: float, final_f
         epochs = max(1, int(np.median(best_epochs))) if best_epochs else cfg.epochs
         logger.info("Final fit on all %d recordings for %d epochs (median best epoch of the folds).", len(recordings), epochs)
         final_dir = output_dir / "final"
-        final = fit(replace(cfg, epochs=epochs, output_dir=str(final_dir), augment=augment),
+        final = fit(replace(cfg, epochs=epochs, output_dir=str(final_dir), augment=augment, resume=None),
                     full.subset(recordings, augment=augment), None, final_dir,
                     extra_metadata={"train_recordings": recordings, "cv_summary": summary})
         final_checkpoint = final["best_checkpoint"]
