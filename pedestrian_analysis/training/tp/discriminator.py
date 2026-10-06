@@ -14,11 +14,21 @@ class TrajectoryDiscriminator(nn.Module):
     """Small LSTM classifier scoring a full (observed + future) displacement sequence.
 
     Input: ``(N, obs_len - 1 + pred_len, 2)`` displacements. Output: ``(N,)``
-    real/fake logits.
+    real/fake logits. ``input_scale`` multiplies the displacements before
+    embedding; pass the training fps so the discriminator sees velocities in
+    m/s (per-frame displacements at 10 Hz are ~0.04 m, too small a signal for
+    the classifier to separate real from fake).
     """
 
-    def __init__(self, embedding_dim: int = 64, hidden_dim: int = 64, mlp_dim: int = 64) -> None:
+    def __init__(
+        self,
+        embedding_dim: int = 64,
+        hidden_dim: int = 64,
+        mlp_dim: int = 64,
+        input_scale: float = 1.0,
+    ) -> None:
         super().__init__()
+        self.input_scale = float(input_scale)
         self.input_embed = nn.Linear(2, embedding_dim)
         self.encoder = nn.LSTM(embedding_dim, hidden_dim, batch_first=True)
         self.classifier = nn.Sequential(
@@ -28,5 +38,5 @@ class TrajectoryDiscriminator(nn.Module):
         )
 
     def forward(self, traj_diffs: torch.Tensor) -> torch.Tensor:
-        _, (h, _) = self.encoder(torch.relu(self.input_embed(traj_diffs)))
+        _, (h, _) = self.encoder(torch.relu(self.input_embed(traj_diffs * self.input_scale)))
         return self.classifier(h.squeeze(0)).squeeze(-1)

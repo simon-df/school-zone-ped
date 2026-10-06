@@ -333,7 +333,7 @@ def fit(
     disc: Optional[TrajectoryDiscriminator] = None
     opt_d: Optional[torch.optim.Optimizer] = None
     if cfg.model == "social_gan":
-        disc = TrajectoryDiscriminator(cfg.embedding_dim, cfg.hidden_dim).to(device)
+        disc = TrajectoryDiscriminator(cfg.embedding_dim, cfg.hidden_dim, input_scale=cfg.fps).to(device)
         opt_d = torch.optim.Adam(disc.parameters(), lr=cfg.d_lr or cfg.lr)
 
     start_epoch = 1
