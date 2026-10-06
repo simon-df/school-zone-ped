@@ -166,7 +166,12 @@ class _TorchTPAdapter(BaseTPAdapter):
 
 
 class SocialLSTMAdapter(_TorchTPAdapter):
-    """Social-LSTM-inspired encoder/decoder with per-mode embedding conditioning."""
+    """Social-LSTM-inspired encoder/decoder with per-mode embedding conditioning.
+
+    With ``use_social_pooling=True`` all pedestrians passed to one
+    :meth:`predict` call are treated as co-present agents of the same scene
+    and interact through the network's social pooling module.
+    """
 
     name = "social_lstm"
 
@@ -178,11 +183,13 @@ class SocialLSTMAdapter(_TorchTPAdapter):
         pred_len: int = 30,
         checkpoint: Optional[str] = None,
         seed: int = 42,
+        use_social_pooling: bool = False,
         **_: Any,
     ) -> None:
         self._embedding_dim = embedding_dim
         self._hidden_dim = hidden_dim
         self._max_modes = max_modes
+        self._use_social_pooling = bool(use_social_pooling)
         super().__init__(pred_len=pred_len, seed=seed, checkpoint=checkpoint)
 
     def _build_net(self) -> Any:
@@ -192,6 +199,7 @@ class SocialLSTMAdapter(_TorchTPAdapter):
             embedding_dim=self._embedding_dim,
             hidden_dim=self._hidden_dim,
             max_modes=self._max_modes,
+            use_social_pooling=self._use_social_pooling,
         )
 
     def predict(self, observed_trajectories: np.ndarray, num_modes: int = 5, **kwargs: Any) -> np.ndarray:
@@ -204,14 +212,20 @@ class SocialLSTMAdapter(_TorchTPAdapter):
 
         with self._torch.no_grad():
             diffs_t = self._torch.from_numpy(diffs)
-            h, c = self.net.encode(diffs_t)
+            # All pedestrians in the batch are treated as one co-present scene;
+            # last_pos is only used by the optional social pooling module.
+            h, c = self.net.encode(diffs_t, last_pos=self._torch.from_numpy(last_point))
             pred_diffs = self.net.decode(diffs_t[:, -1, :], h, c, num_modes=num_modes, pred_len=pred_len)
 
         return self._reconstruct_absolute(last_point, pred_diffs.numpy())
 
 
 class SocialGANAdapter(_TorchTPAdapter):
-    """Social-GAN-inspired encoder + noise-conditioned generator decoder."""
+    """Social-GAN-inspired encoder + noise-conditioned generator decoder.
+
+    With ``use_social_pooling=True`` all pedestrians passed to one
+    :meth:`predict` call are pooled together as one co-present scene.
+    """
 
     name = "social_gan"
 
@@ -223,11 +237,13 @@ class SocialGANAdapter(_TorchTPAdapter):
         pred_len: int = 30,
         checkpoint: Optional[str] = None,
         seed: int = 42,
+        use_social_pooling: bool = False,
         **_: Any,
     ) -> None:
         self._embedding_dim = embedding_dim
         self._hidden_dim = hidden_dim
         self._noise_dim = noise_dim
+        self._use_social_pooling = bool(use_social_pooling)
         super().__init__(pred_len=pred_len, seed=seed, checkpoint=checkpoint)
         self._sampler = self._torch.Generator().manual_seed(seed)
 
@@ -238,6 +254,7 @@ class SocialGANAdapter(_TorchTPAdapter):
             embedding_dim=self._embedding_dim,
             hidden_dim=self._hidden_dim,
             noise_dim=self._noise_dim,
+            use_social_pooling=self._use_social_pooling,
         )
 
     def predict(self, observed_trajectories: np.ndarray, num_modes: int = 20, **kwargs: Any) -> np.ndarray:
@@ -249,7 +266,9 @@ class SocialGANAdapter(_TorchTPAdapter):
 
         with self._torch.no_grad():
             diffs_t = self._torch.from_numpy(diffs)
-            h, c = self.net.encode(diffs_t)
+            # All pedestrians in the batch are treated as one co-present scene;
+            # last_pos is only used by the optional social pooling module.
+            h, c = self.net.encode(diffs_t, last_pos=self._torch.from_numpy(last_point))
             pred_diffs = self.net.decode(
                 diffs_t[:, -1, :], h, c, num_modes=num_modes, pred_len=pred_len, generator=self._sampler
             )

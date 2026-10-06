@@ -9,6 +9,7 @@ from tkinter import ttk
 import numpy as np
 import pandas as pd
 
+from pipeline.trajectory_io import load_trajectory_csv  # noqa: F401  (re-exported for backward compatibility)
 from pipeline.tp_windowing import extract_observation_windows, get_current_positions, stack_observations
 from ui.dialogs import ask_open_file, show_error, show_warning
 from ui.tp_controls import TPControls
@@ -23,42 +24,6 @@ _DEFAULT_FPS = 10.0
 _MIN_OBS_FRAMES = 2
 
 
-def load_trajectory_csv(csv_path: str, fps: float = _DEFAULT_FPS) -> pd.DataFrame:
-    """Load and normalize a trajectory CSV for the TP Analysis tab.
-
-    Accepts both this app's native schema (``id``, ``frame``, ``x``, ``y``)
-    and the ``track_id``/``x_m``/``y_m`` schema described in earlier planning
-    docs; both are normalized to ``id``/``frame``/``x``/``y``.
-
-    Raises:
-        ValueError: When required columns are missing.
-    """
-    df = pd.read_csv(csv_path)
-
-    rename_map = {}
-    if "track_id" in df.columns and "id" not in df.columns:
-        rename_map["track_id"] = "id"
-    if "x_m" in df.columns and "x" not in df.columns:
-        rename_map["x_m"] = "x"
-    if "y_m" in df.columns and "y" not in df.columns:
-        rename_map["y_m"] = "y"
-    if rename_map:
-        df = df.rename(columns=rename_map)
-
-    required = {"id", "frame", "x", "y"}
-    missing = required - set(df.columns)
-    if missing:
-        raise ValueError(f"Missing required columns: {sorted(missing)}")
-
-    if "timestamp" not in df.columns:
-        df = df.assign(timestamp=df["frame"] / fps)
-
-    df = df[["id", "frame", "timestamp", "x", "y"]].dropna(subset=["id", "frame", "x", "y"])
-    df["id"] = df["id"].astype(int)
-    df["frame"] = df["frame"].astype(int)
-    return df.sort_values(["frame", "id"]).reset_index(drop=True)
-
-
 class TPAnalysisTab(ttk.Frame):
     """UI tab: PedPy trajectory overview + interactive TP prediction preview."""
 
@@ -68,6 +33,7 @@ class TPAnalysisTab(ttk.Frame):
         self._df: pd.DataFrame | None = None
         self._fps = _DEFAULT_FPS
         self._pedpy_canvas: object | None = None
+        self._warned_checkpoint_settings: set[tuple] = set()
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -159,6 +125,30 @@ class TPAnalysisTab(ttk.Frame):
         if frame_idx is not None:
             self._on_frame_committed(frame_idx)
 
+    def _warn_checkpoint_settings_mismatch(
+        self, adapter_name: str, checkpoint_path: str | None, obs_window: int, pred_len: int
+    ) -> None:
+        """Warn (once per combination) when UI settings differ from the checkpoint's training settings."""
+        from pipeline.tp_model_registry import checkpoint_settings_warnings, load_checkpoint_metadata
+
+        key = (adapter_name, checkpoint_path, obs_window, pred_len, self._fps)
+        if not checkpoint_path or key in self._warned_checkpoint_settings:
+            return
+        self._warned_checkpoint_settings.add(key)
+        warnings = checkpoint_settings_warnings(
+            load_checkpoint_metadata(checkpoint_path),
+            obs_len=obs_window,
+            pred_len=pred_len,
+            fps=self._fps,
+            model_name=adapter_name,
+        )
+        if warnings:
+            show_warning(
+                "TP checkpoint settings differ from the current settings:\n- "
+                + "\n- ".join(warnings)
+                + "\n\nPredictions may be unreliable; match the Obs window / Pred frames to the training setup."
+            )
+
     def _on_frame_committed(self, frame_idx: int | None) -> None:
         if self._df is None or frame_idx is None:
             return
@@ -186,6 +176,7 @@ class TPAnalysisTab(ttk.Frame):
                     adapter = TPModelRegistry.create_adapter(
                         adapter_name, checkpoint_path=checkpoint_path, pred_len=pred_len
                     )
+                    self._warn_checkpoint_settings_mismatch(adapter_name, checkpoint_path, obs_window, pred_len)
                     start = time.perf_counter()
                     batch_predictions = adapter.predict(positions, num_modes=num_modes, pred_len=pred_len)
                     elapsed_ms = (time.perf_counter() - start) * 1000.0

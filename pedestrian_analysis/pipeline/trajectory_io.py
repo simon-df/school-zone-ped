@@ -29,6 +29,9 @@ _OPTIONAL_COLUMNS: tuple[str, ...] = (
     "min_separation_m",
 )
 
+# Default frame rate assumed when a trajectory CSV has no ``timestamp`` column.
+DEFAULT_TRAJECTORY_FPS = 10.0
+
 
 def save_trajectories(df: pd.DataFrame, path: str | Path) -> None:
     """Validate and save *df* to a CSV file.
@@ -68,3 +71,40 @@ def load_trajectories(path: str | Path) -> pd.DataFrame:
     validate_trajectory_dataframe(df)
     logger.info("Loaded %d trajectory rows from '%s'", len(df), path)
     return df
+
+
+def load_trajectory_csv(csv_path: str | Path, fps: float = DEFAULT_TRAJECTORY_FPS) -> pd.DataFrame:
+    """Load and normalize a trajectory CSV (TP Analysis tab + TP training pipeline).
+
+    Accepts both this app's native schema (``id``, ``frame``, ``x``, ``y``)
+    and the ``track_id``/``x_m``/``y_m`` schema described in earlier planning
+    docs; both are normalized to ``id``/``frame``/``timestamp``/``x``/``y``.
+    When no ``timestamp`` column is present it is derived as ``frame / fps``.
+
+    Raises:
+        ValueError: When required columns are missing.
+    """
+    df = pd.read_csv(csv_path)
+
+    rename_map = {}
+    if "track_id" in df.columns and "id" not in df.columns:
+        rename_map["track_id"] = "id"
+    if "x_m" in df.columns and "x" not in df.columns:
+        rename_map["x_m"] = "x"
+    if "y_m" in df.columns and "y" not in df.columns:
+        rename_map["y_m"] = "y"
+    if rename_map:
+        df = df.rename(columns=rename_map)
+
+    required = {"id", "frame", "x", "y"}
+    missing = required - set(df.columns)
+    if missing:
+        raise ValueError(f"Missing required columns: {sorted(missing)}")
+
+    if "timestamp" not in df.columns:
+        df = df.assign(timestamp=df["frame"] / fps)
+
+    df = df[["id", "frame", "timestamp", "x", "y"]].dropna(subset=["id", "frame", "x", "y"])
+    df["id"] = df["id"].astype(int)
+    df["frame"] = df["frame"].astype(int)
+    return df.sort_values(["frame", "id"]).reset_index(drop=True)
