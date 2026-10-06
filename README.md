@@ -38,6 +38,7 @@ school-zone-ped/
 │   ├── app.py
 │   ├── config.py
 │   ├── pipeline/
+│   ├── training/        # YOLO template + tp/ (trajectory-prediction training)
 │   ├── ui/
 │   ├── visualization/
 │   ├── utils/
@@ -206,13 +207,37 @@ The **TP Analyse** tab lets you load a trajectory CSV, view all trajectories via
 | UI model name       | Checkpoint | Status |
 |----------------------|:---------:|--------|
 | `constant_velocity`  | not required | Implemented (`DummyTPAdapter`) |
-| `social_lstm`        | optional  | Implemented, from-scratch reimplementation (`pipeline.tp_models.SocialLSTMNet`); runs with random weights unless you train and pass your own checkpoint |
-| `social_gan`         | optional  | Implemented, from-scratch reimplementation (`pipeline.tp_models.SocialGANNet`); **not** compatible with the official [agrimgupta92/sgan](https://github.com/agrimgupta92/sgan) checkpoints (different architecture/state_dict keys) |
+| `social_lstm`        | optional  | Implemented, from-scratch reimplementation (`pipeline.tp_models.SocialLSTMNet`); runs with random weights unless you train a checkpoint (see below) |
+| `social_gan`         | optional  | Implemented, from-scratch reimplementation (`pipeline.tp_models.SocialGANNet`); train it with the pipeline below. **Not** compatible with the official [agrimgupta92/sgan](https://github.com/agrimgupta92/sgan) checkpoints (different architecture/state_dict keys) |
 | `transformer`        | optional  | Implemented, custom architecture (`pipeline.tp_models.TransformerTPNet`); no published checkpoint exists for it |
 | `social_stgcnn`      | **required** | Not implemented — selecting it raises a clear error. Official repo: [abduallahmohamed/Social-STGCNN](https://github.com/abduallahmohamed/Social-STGCNN) |
 | `trajectron_pp`      | **required** | Not implemented — selecting it raises a clear error. Official repo: [StanfordASL/Trajectron-plus-plus](https://github.com/StanfordASL/Trajectron-plus-plus) |
 
 Important: the official Social-GAN / Social-STGCNN / Trajectron++ checkpoints were all trained on ETH/UCY (or nuScenes) pedestrian data from oblique/side-view cameras at low frame rates (2.5–10 Hz), not top-down drone footage — even a fully integrated model would likely need fine-tuning on your own data to perform well here.
+
+### Training Social-LSTM / Social-GAN checkpoints
+
+`pedestrian_analysis/training/tp/` contains a training pipeline whose checkpoints load directly into the adapters and the tab's *Checkpoint* field. Full walkthrough: [docs/TP_TRAINING.md](docs/TP_TRAINING.md).
+
+```bash
+cd pedestrian_analysis
+python -m training.tp.download_ethucy                                                  # 1. ETH/UCY -> data/ethucy/
+python -m training.tp.train --model social_lstm --dataset ethucy --test-scene zara1    # 2. pretrain (leave-one-scene-out)
+python -m training.tp.train --model social_gan  --dataset ethucy --test-scene zara1 --use-social-pooling
+python -m training.tp.evaluate --dataset own_csv --csv data/trajectories/ \
+    --checkpoint outputs/tp_training/social_lstm_ethucy_zara1/best.pt                 # 3. zero-shot vs constant velocity
+python -m training.tp.finetune --csv data/trajectories/ \
+    --init-checkpoint outputs/tp_training/social_lstm_ethucy_zara1/best.pt --freeze-encoder   # 4. leave-one-recording-out CV
+```
+
+Then load `outputs/tp_training/<model>_finetune/final/best.pt` in the TP Analyse tab.
+
+Notes:
+
+* Checkpoints are tied to the training **fps / obs_len / pred_len**. ETH/UCY (2.5 Hz) is resampled to 10 Hz by default, so checkpoints match the UI defaults (obs 20 / pred 30). The sidecar `best.json` stores these settings, and the tab warns on mismatch.
+* Both nets have an optional social pooling module (`--use-social-pooling`, off by default), which matters for groups crossing together.
+* With only ~12 recordings, judge fine-tuned results against the constant-velocity baseline, which is always reported.
+* PIE is not supported (ego-vehicle image-space data vs. top-down metric trajectories). There is only a stub loader.
 
 ### Fetching official reference checkpoints (optional)
 
