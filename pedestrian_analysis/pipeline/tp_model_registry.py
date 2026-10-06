@@ -13,6 +13,7 @@ tested and wired into the extraction pipeline and the TP Analysis tab.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
@@ -21,6 +22,65 @@ from pipeline.tp_adapters import TP_ADAPTER_REGISTRY, BaseTPAdapter
 
 import logging
 logger = logging.getLogger(__name__)
+
+
+def checkpoint_metadata_path(checkpoint_path: str | Path) -> Optional[Path]:
+    """Return the sidecar metadata file for *checkpoint_path*, if one exists.
+
+    The TP training pipeline (:mod:`training.tp.train`) writes ``<stem>.json``
+    next to each checkpoint (e.g. ``best.pt`` -> ``best.json``);
+    ``<checkpoint>.json`` (e.g. ``best.pt.json``) is accepted as well.
+    """
+    path = Path(checkpoint_path)
+    for candidate in (path.with_suffix(".json"), Path(f"{path}.json")):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def load_checkpoint_metadata(checkpoint_path: Optional[str | Path]) -> Optional[dict[str, Any]]:
+    """Load the sidecar metadata of a checkpoint, or ``None`` if absent/unreadable."""
+    if not checkpoint_path:
+        return None
+    meta_path = checkpoint_metadata_path(checkpoint_path)
+    if meta_path is None:
+        return None
+    try:
+        metadata = json.loads(meta_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        logger.warning("Ignoring unreadable checkpoint metadata '%s': %s", meta_path, exc)
+        return None
+    return metadata if isinstance(metadata, dict) else None
+
+
+def checkpoint_settings_warnings(
+    metadata: Optional[dict[str, Any]],
+    *,
+    obs_len: Optional[int] = None,
+    pred_len: Optional[int] = None,
+    fps: Optional[float] = None,
+    model_name: Optional[str] = None,
+) -> list[str]:
+    """Compare current (UI) settings with the settings a checkpoint was trained with.
+
+    Returns human-readable warnings for every mismatch of model name, frame
+    rate, observation length or prediction length. Empty when *metadata* is
+    ``None`` or everything matches.
+    """
+    if not metadata:
+        return []
+    warnings: list[str] = []
+    trained_model = metadata.get("model")
+    if model_name and trained_model and trained_model != model_name:
+        warnings.append(f"checkpoint was trained for model '{trained_model}', not '{model_name}'")
+    trained_fps = metadata.get("fps")
+    if fps is not None and trained_fps is not None and abs(float(trained_fps) - float(fps)) > 1e-6:
+        warnings.append(f"checkpoint was trained at {float(trained_fps):g} fps, current data/UI uses {float(fps):g} fps")
+    for key, current in (("obs_len", obs_len), ("pred_len", pred_len)):
+        trained = metadata.get(key)
+        if current is not None and trained is not None and int(trained) != int(current):
+            warnings.append(f"checkpoint was trained with {key}={int(trained)}, current setting is {int(current)}")
+    return warnings
 
 
 @dataclass
@@ -108,6 +168,22 @@ class TPModelRegistry:
                     f"Checkpoint file not found: {checkpoint_path}\n"
                     f"Please verify the file path is correct."
                 )
+            metadata = load_checkpoint_metadata(checkpoint_path)
+            if metadata is not None:
+                trained_model = metadata.get("model")
+                if trained_model and trained_model != model_name:
+                    logger.warning(
+                        "Checkpoint '%s' was trained for model '%s' but is loaded into '%s'.",
+                        checkpoint_path,
+                        trained_model,
+                        model_name,
+                    )
+                else:
+                    # Architecture kwargs recorded at training time (e.g.
+                    # hidden_dim, use_social_pooling) are applied as defaults
+                    # so the state_dict matches; explicit kwargs still win.
+                    for key, value in (metadata.get("model_kwargs") or {}).items():
+                        kwargs.setdefault(key, value)
 
         try:
             return adapter_class(checkpoint=checkpoint_path, **kwargs)
@@ -143,12 +219,28 @@ class TPModelRegistry:
                     "This adapter is a from-scratch reimplementation of the Social-LSTM "
                     "idea (see pipeline.tp_models.SocialLSTMNet), not the original "
                     "authors' code, so no official pretrained checkpoint is compatible. "
-                    "Train your own checkpoint with a matching architecture "
-                    "(embedding_dim, hidden_dim, max_modes) and pass its state_dict path."
+                    "Train your own checkpoint with the TP training pipeline "
+                    "(python -m training.tp.train --model social_lstm ..., see "
+                    "docs/TP_TRAINING.md) and pass its best.pt path. The sidecar "
+                    "best.json (fps/obs_len/pred_len/architecture) is read automatically."
                 ),
-                default_config={"obs_len": 20, "pred_len": 30, "embedding_dim": 64, "hidden_dim": 64, "num_modes": 5},
+                default_config={
+                    "obs_len": 20,
+                    "pred_len": 30,
+                    "frame_rate_hz": 10.0,
+                    "embedding_dim": 64,
+                    "hidden_dim": 64,
+                    "max_modes": 20,
+                    "num_modes": 5,
+                    "use_social_pooling": False,
+                },
                 checkpoint_format="pytorch_state_dict",
-                notes="Runs with random weights (architecture validation only) when no checkpoint is given.",
+                notes=(
+                    "Runs with random weights (architecture validation only) when no checkpoint is given. "
+                    "Optional Social-GAN-style social pooling (use_social_pooling=True, read from the "
+                    "checkpoint's sidecar JSON) pools all pedestrians of the current frame together; "
+                    "without it each pedestrian is predicted independently."
+                ),
             ),
         )
 
@@ -165,18 +257,27 @@ class TPModelRegistry:
                     "(pipeline.tp_models.SocialGANNet) -- the state_dict keys won't match. "
                     "To use the official checkpoints you would need to vendor their model "
                     "code; to use this adapter's checkpoint loading, train your own "
-                    "SocialGANNet and pass its state_dict path."
+                    "SocialGANNet with the TP training pipeline (python -m training.tp.train "
+                    "--model social_gan ..., see docs/TP_TRAINING.md) and pass its best.pt "
+                    "(generator-only state_dict) path."
                 ),
                 default_config={
                     "obs_len": 20,
                     "pred_len": 30,
+                    "frame_rate_hz": 10.0,
                     "embedding_dim": 64,
                     "hidden_dim": 64,
                     "noise_dim": 8,
                     "num_modes": 20,
+                    "use_social_pooling": False,
                 },
                 checkpoint_format="pytorch_state_dict",
-                notes="Runs with random weights (architecture validation only) when no checkpoint is given.",
+                notes=(
+                    "Runs with random weights (architecture validation only) when no checkpoint is given. "
+                    "Optional Social-GAN-style social pooling (use_social_pooling=True, read from the "
+                    "checkpoint's sidecar JSON) pools all pedestrians of the current frame together; "
+                    "without it each pedestrian is predicted independently."
+                ),
             ),
         )
 

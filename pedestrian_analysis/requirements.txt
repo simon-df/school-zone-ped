@@ -14,8 +14,9 @@ supervision>=0.18.0
 # Optional / Research Integration
 pedpy>=1.1.0
 
-# Trajectory prediction (Phase 2 TP adapters)
+# Trajectory prediction (Phase 2 TP adapters + training pipeline in training/tp/)
 torch>=2.0
+pyyaml>=6.0  # optional --config YAML files for training.tp.train / finetune
 
 # Optional: only needed if you vendor the official Social-STGCNN code
 # (pipeline.tp_adapters.SocialSTGCNNAdapter is a not-implemented placeholder
