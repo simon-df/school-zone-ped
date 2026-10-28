@@ -61,7 +61,8 @@ python -m training.tp.train --model social_lstm --dataset ethucy --test-scene za
 
 # Social-GAN (generator: best-of-K L2 + adversarial loss from an LSTM discriminator)
 python -m training.tp.train --model social_gan --dataset ethucy --test-scene zara1 \
-    --epochs 100 --num-modes 20 --adv-weight 0.1 --output-dir outputs/tp_training/social_gan_zara1
+    --epochs 100 --num-modes 20 --adv-weight 0.1 --device cuda \
+    --output-dir outputs/tp_training/social_gan_zara1
 
 # With interaction modelling (recommended for groups crossing together)
 python -m training.tp.train --model social_gan --dataset ethucy --test-scene zara1 --use-social-pooling
@@ -71,7 +72,7 @@ Useful options:
 
 * `--fps`, `--obs-len`, `--pred-len`, `--stride` (default `fps / 2.5`)
 * `--batch-size` (windows per batch), `--lr`, `--epochs`, `--patience`, `--early-stop-metric {min_ade,ade,...}`
-* `--device auto|cpu|cuda`, `--seed`
+* `--device auto|cpu|cuda`, `--seed`. `auto` selects CUDA when PyTorch detects it and otherwise falls back to CPU; use `--device cuda` to require GPU training.
 * `--augment`, `--resume <output-dir>/train_state.pt`
 * `--config run.yaml`: a YAML mapping of option names to values. CLI flags override it.
 
@@ -85,6 +86,8 @@ Outputs in `--output-dir`:
 The best epoch is selected on validation **minADE@K** by default, because training optimises best-of-K. "ADE" in the reports is the first mode only. For Social-GAN that is one random sample, so compare models on minADE@K / minFDE@K.
 
 Rough CPU cost at 10 Hz is about 1 minute per epoch for Social-LSTM. A GPU (`--device cuda`) is much faster.
+
+Check CUDA from the same Python environment used to launch training with `python -c "import torch; print(torch.cuda.is_available())"`. If it prints `False`, install a PyTorch build matching your GPU/driver; explicitly requesting `--device cuda` will report this setup problem instead of silently training on CPU.
 
 ## 3. Zero-shot evaluation on your own CSVs
 

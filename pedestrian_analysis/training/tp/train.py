@@ -158,8 +158,19 @@ class TrainConfig:
 
 def resolve_device(device: str) -> torch.device:
     if device == "auto":
-        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    return torch.device(device)
+        if torch.cuda.is_available():
+            return torch.device("cuda")
+        logger.warning(
+            "CUDA is not available; using CPU. Install a PyTorch build for your GPU and pass --device cuda to require it."
+        )
+        return torch.device("cpu")
+    resolved = torch.device(device)
+    if resolved.type == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError(
+            f"CUDA was requested with --device {device}, but torch.cuda.is_available() is False. "
+            "Check that a supported GPU and driver are available and install a matching CUDA-enabled PyTorch build."
+        )
+    return resolved
 
 
 def set_seed(seed: int) -> None:

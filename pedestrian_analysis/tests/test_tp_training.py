@@ -32,7 +32,7 @@ from training.tp.finetune import make_folds, summarize_folds  # noqa: E402
 from training.tp.losses import discriminator_loss, generator_adversarial_loss, variety_loss  # noqa: E402
 from training.tp.metrics import displacement_errors  # noqa: E402
 from training.tp.resample import resample_trajectories  # noqa: E402
-from training.tp.train import TrainConfig, fit, target_diffs  # noqa: E402
+from training.tp.train import TrainConfig, fit, resolve_device, target_diffs  # noqa: E402
 
 _TINY = dict(embedding_dim=8, hidden_dim=8)
 
@@ -53,6 +53,19 @@ def _write_recordings(tmp_path, count: int = 3) -> list[str]:
         df.rename(columns={"id": "track_id", "x": "x_m", "y": "y_m"}).to_csv(path, index=False)
         paths.append(str(path))
     return paths
+
+
+def test_resolve_device_auto_uses_cuda_when_available(monkeypatch) -> None:
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+
+    assert resolve_device("auto").type == "cuda"
+
+
+def test_resolve_device_explicit_cuda_requires_available_cuda(monkeypatch) -> None:
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+
+    with pytest.raises(RuntimeError, match="torch.cuda.is_available\\(\\) is False"):
+        resolve_device("cuda")
 
 
 # ----------------------------------------------------------------------
