@@ -21,6 +21,8 @@ desktop.ini
 .vscode/
 outputs/
 pedestrian_analysis/data/*
+# ETH/UCY benchmark files fetched by training/tp/download_ethucy.py (never commit)
+pedestrian_analysis/data/ethucy/
 pedestrian_analysis/outputs/*
 dist/
 build/
